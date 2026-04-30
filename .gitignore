@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+data/secrets.json
+data/users.json
+data/nodes/node_*_ledger.json
