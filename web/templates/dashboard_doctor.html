@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Doctor dashboard &middot; {{ user.username }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+  <div>
+    <h3 class="mb-1">Welcome back, {{ user.username }} <span class="role-badge role-doctor ms-2">doctor</span></h3>
+    <p class="muted mb-0">
+      Record an EHR access event below.  The gateway encrypts the payload and broadcasts it
+      across the audit network; <strong>you cannot read records back</strong> — only the patient and
+      audit companies can.
+    </p>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-pencil-square"></i> My recent writes</span>
+    <span class="stat-value">{{ recent_writes|length }}</span>
+    <span class="stat-help">last 10 broadcasts</span>
+  </div></div>
+  <div class="col-md-4"><div class="stat-tile tile-success">
+    <span class="stat-label"><i class="bi bi-people"></i> Patients on file</span>
+    <span class="stat-value">{{ patients|length }}</span>
+  </div></div>
+  <div class="col-md-4"><div class="stat-tile tile-warning">
+    <span class="stat-label"><i class="bi bi-key"></i> Your role</span>
+    <span class="stat-value" style="font-size: 1.05rem;">writer only</span>
+    <span class="stat-help">payload is sealed against you</span>
+  </div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="surface p-4">
+      <h5 class="mb-3"><i class="bi bi-plus-circle text-primary me-1"></i> Create audit record</h5>
+      <form method="post" action="{{ url_for('web_create_audit') }}" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary">Patient</label>
+          <select class="form-select" name="patient_id" required>
+            {% for p in patients %}
+              <option value="{{ p.patient_id }}">{{ p.patient_id }} &middot; {{ p.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary">Action</label>
+          <select class="form-select" name="action_type" required>
+            {% for a in ['create','change','query','print','copy','delete'] %}
+              <option value="{{ a }}">{{ a }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary">Notes</label>
+          <input class="form-control" name="details" placeholder="e.g. Reviewed lab results" required>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-brand">
+            <i class="bi bi-broadcast"></i> Sign and broadcast
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="surface p-4 h-100">
+      <h5 class="mb-3"><i class="bi bi-people text-primary me-1"></i> My patients</h5>
+      <div class="table-responsive" style="max-height: 360px; overflow-y: auto;">
+        <table class="table-app mb-0">
+          <thead><tr><th>Patient ID</th><th>Username</th><th></th></tr></thead>
+          <tbody>
+            {% for p in patients %}
+              <tr>
+                <td><code>{{ p.patient_id }}</code></td>
+                <td>{{ p.username }}</td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-ghost" href="{{ url_for('web_doctor_patient', patient_id=p.patient_id) }}">
+                    <i class="bi bi-arrow-right-short"></i> Open
+                  </a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="surface p-4 mt-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="mb-0"><i class="bi bi-clock-history text-primary me-1"></i> My recent writes</h5>
+    <span class="badge-soft">{{ recent_writes|length }}</span>
+  </div>
+  {% if recent_writes %}
+    <div class="table-responsive">
+      <table class="table-app mb-0">
+        <thead><tr><th>When (UTC)</th><th>Block</th><th>Endorsements</th></tr></thead>
+        <tbody>
+          {% for w in recent_writes %}
+            {% set hdr = w.sig_header or {} %}
+            <tr>
+              <td><code>{{ hdr.timestamp }}</code></td>
+              <td><strong>{{ w.block_id }}</strong> <span class="muted tiny">h={{ w.height }}</span></td>
+              <td>{{ w.endorsements|length }} / 3 nodes</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="text-center text-secondary py-4">
+      <i class="bi bi-inboxes fs-3 d-block mb-2"></i>
+      No broadcasts yet.
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

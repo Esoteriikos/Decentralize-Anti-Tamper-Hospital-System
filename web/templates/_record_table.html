@@ -1,0 +1,46 @@
+{# Reusable record table.  Expects `records` (list of dicts).
+   Each row links to /web/record/<record_id>.  Set `show_patient` to hide
+   the patient column on the patient dashboard. #}
+{% set show_patient = show_patient if show_patient is defined else True %}
+
+{% if records %}
+  <div class="surface" style="overflow: hidden;">
+    <table class="table-app">
+      <thead>
+        <tr>
+          <th>Record</th>
+          {% if show_patient %}<th>Patient</th>{% endif %}
+          <th>Action</th>
+          <th>By</th>
+          <th>Timestamp (UTC)</th>
+          <th>Details</th>
+          <th>Block hash</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+          <tr class="clickable" onclick="window.location='{{ url_for('web_record_detail', record_id=r.record_id) }}'">
+            <td><code>{{ r.record_id }}</code></td>
+            {% if show_patient %}<td><span class="badge-soft">{{ r.patient_id }}</span></td>{% endif %}
+            <td><span class="action-chip action-{{ r.action_type }}">{{ r.action_type }}</span></td>
+            <td>{{ r.user_id }}</td>
+            <td class="muted tiny">{{ r.timestamp }}</td>
+            <td class="muted">{{ r.details }}</td>
+            <td>
+              <span class="hash-chip" data-hash="{{ r.current_hash }}" title="Click to copy full hash" onclick="event.stopPropagation();">
+                <i class="bi bi-link-45deg"></i>{{ r.current_hash[:14] }}…
+              </span>
+            </td>
+            <td><i class="bi bi-chevron-right text-secondary"></i></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <div class="surface p-4 text-center text-secondary">
+    <i class="bi bi-inboxes fs-3 d-block mb-2 text-secondary"></i>
+    No audit records yet.
+  </div>
+{% endif %}

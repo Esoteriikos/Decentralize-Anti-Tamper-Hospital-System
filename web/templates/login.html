@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Sign in &middot; Decentralized Audit{% endblock %}
+{% block content %}
+<div class="hero-grid">
+
+  {# left: feature explainer #}
+  <div class="hero-panel">
+    <div class="d-flex align-items-center gap-2 mb-2 text-info">
+      <i class="bi bi-shield-lock-fill"></i>
+      <span class="badge-soft" style="background: rgba(255,255,255,.12); color: #c7d2fe; border-color: transparent;">CSCI-531 / Option 2</span>
+    </div>
+    <h1>Privacy-preserving, tamper-evident EHR audit logs.</h1>
+    <p>
+      Every record is encrypted with a fresh AES-256 key, signed with the writer's
+      Ed25519 key, broadcast to three independent storage nodes, and committed
+      only after a 2-of-3 quorum endorses it.  No single node can rewrite history.
+    </p>
+    <ul class="feature-list">
+      <li><i class="bi bi-incognito"></i><div><strong>Privacy</strong> &mdash; AES-GCM payload, RSA-OAEP-wrapped per reader.  Doctors write but cannot read.</div></li>
+      <li><i class="bi bi-fingerprint"></i><div><strong>Identification</strong> &mdash; scrypt password hashing (Postgres), JWT sessions with revocation.</div></li>
+      <li><i class="bi bi-search"></i><div><strong>Querying</strong> &mdash; patients see their own records; audit companies see all and can investigate.</div></li>
+      <li><i class="bi bi-link-45deg"></i><div><strong>Immutability</strong> &mdash; SHA-256 chain hash + Ed25519 actor signature on every block.</div></li>
+      <li><i class="bi bi-diagram-3"></i><div><strong>Decentralization</strong> &mdash; 3 independent Flask nodes, 2-of-3 quorum.</div></li>
+    </ul>
+  </div>
+
+  {# right: sign-in #}
+  <div>
+    <div class="surface p-4 mb-3">
+      <h4 class="mb-3"><i class="bi bi-person-fill-lock me-1 text-primary"></i> Sign in</h4>
+      <form method="post" action="{{ url_for('web_login_submit') }}" id="login-form">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold text-secondary">Username</label>
+          <input class="form-control" name="username" id="login-username" autofocus required autocomplete="username">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold text-secondary">Password</label>
+          <input class="form-control" type="password" name="password" id="login-password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-brand w-100">
+          <i class="bi bi-arrow-right-circle"></i> Sign in
+        </button>
+      </form>
+
+      {% if ALLOW_PATIENT_SIGNUP %}
+        <div class="text-center mt-3">
+          <a class="small" href="{{ url_for('web_signup') }}">
+            <i class="bi bi-person-plus"></i> Create a patient account
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="surface p-4">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="mb-0"><i class="bi bi-people me-1 text-primary"></i> Demo accounts</h6>
+        <span class="badge-soft">click to fill</span>
+      </div>
+      <p class="muted tiny mb-3">
+        On a fresh deployment these don't exist yet &mdash; click <em>Bootstrap demo users</em> below
+        to provision the assignment's sample roster.
+      </p>
+
+      <div class="row g-2 mb-3">
+        {% set quick = [
+          ('patient_01', 'PatientPass!', 'patient'),
+          ('doctor_01', 'DoctorPass!', 'doctor'),
+          ('audit_company_01', 'AuditPass!', 'audit_company'),
+          ('admin_01', 'AdminPass!', 'admin'),
+        ] %}
+        {% for u, p, role in quick %}
+          <div class="col-6">
+            <button type="button" class="btn-quick" data-username="{{ u }}" data-password="{{ p }}">
+              <i class="bi bi-person-badge"></i>
+              <span class="text-truncate">{{ u }}</span>
+              <span class="role-badge role-{{ role }}">{{ role }}</span>
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+
+      <form method="post" action="{{ url_for('web_bootstrap') }}" class="d-flex gap-2">
+        <button class="btn btn-ghost flex-grow-1" type="submit">
+          <i class="bi bi-box2-fill"></i> Bootstrap demo users
+        </button>
+      </form>
+      <p class="muted tiny mt-2 mb-0">
+        Creates 10 patients, 2 doctors, 3 audit companies, and 1 admin if no users exist yet.
+      </p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.querySelectorAll(".btn-quick").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.getElementById("login-username").value = btn.dataset.username;
+      document.getElementById("login-password").value = btn.dataset.password;
+      document.getElementById("login-form").submit();
+    });
+  });
+</script>
+{% endblock %}

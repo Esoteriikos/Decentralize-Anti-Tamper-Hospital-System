@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Admin console{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-3">
+  <div>
+    <h3 class="mb-1"><i class="bi bi-tools text-primary me-1"></i> Admin console</h3>
+    <p class="muted mb-0">
+      User management, login audit, integrity tools, and the tamper simulator for demonstrations.
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('web_nodes') }}" class="btn btn-ghost"><i class="bi bi-diagram-3"></i> Nodes ledger</a>
+    <a href="{{ url_for('web_verify') }}" class="btn btn-ghost"><i class="bi bi-shield-check"></i> Integrity check</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-people"></i> Users</span>
+    <span class="stat-value">{{ users|length }}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile tile-success">
+    <span class="stat-label"><i class="bi bi-shield-check"></i> Nodes online</span>
+    <span class="stat-value">{{ node_statuses|selectattr('online')|list|length }}/{{ node_statuses|length }}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile tile-warning">
+    <span class="stat-label"><i class="bi bi-lock"></i> Locked accounts</span>
+    <span class="stat-value">{{ users|selectattr('locked')|list|length }}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-graph-up"></i> Logins (7d)</span>
+    <span class="stat-value">{{ login_stats.total }}</span>
+    <span class="stat-help">{{ login_stats.by_outcome.get('success', 0) }} success / {{ login_stats.by_outcome.get('bad_password', 0) }} fails</span>
+  </div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="surface p-4">
+      <h5 class="mb-3"><i class="bi bi-people text-primary me-1"></i> User roster</h5>
+      <div class="table-responsive" style="max-height: 360px; overflow-y: auto;">
+        <table class="table-app mb-0">
+          <thead>
+            <tr><th>Username</th><th>Role</th><th>Patient</th><th>Failed</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for u in users %}
+              <tr>
+                <td><code>{{ u.username }}</code></td>
+                <td><span class="role-badge role-{{ u.role }}">{{ u.role }}</span></td>
+                <td>{{ u.patient_id or '—' }}</td>
+                <td>{{ u.failed_logins }}</td>
+                <td>
+                  {% if u.locked %}
+                    <span class="text-danger"><i class="bi bi-lock-fill"></i> locked</span>
+                  {% else %}
+                    <span class="text-success"><i class="bi bi-check-circle"></i> active</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if u.user_id != user.user_id %}
+                    <form method="post" action="{{ url_for('web_admin_user_lock', user_id=u.user_id) }}" class="d-inline">
+                      <input type="hidden" name="action" value="{{ 'unlock' if u.locked else 'lock' }}">
+                      <button class="btn btn-sm btn-ghost" type="submit" title="{{ 'Unlock' if u.locked else 'Lock' }}">
+                        <i class="bi bi-{{ 'unlock' if u.locked else 'lock' }}"></i>
+                      </button>
+                    </form>
+                    <form method="post" action="{{ url_for('web_admin_user_delete', user_id=u.user_id) }}" class="d-inline"
+                          onsubmit="return confirm('Delete {{ u.username }}? This is irreversible.');">
+                      <button class="btn btn-sm btn-ghost text-danger" type="submit" title="Delete"><i class="bi bi-trash"></i></button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="surface p-4 h-100">
+      <h5 class="mb-3"><i class="bi bi-person-plus text-primary me-1"></i> Create user</h5>
+      <form method="post" action="{{ url_for('web_admin_user_create') }}" class="row g-2">
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary mb-1">Username</label>
+          <input class="form-control form-control-sm" name="username" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary mb-1">Role</label>
+          <select class="form-select form-select-sm" name="role" required>
+            <option value="patient">patient</option>
+            <option value="doctor">doctor</option>
+            <option value="audit_company">audit_company</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary mb-1">Patient ID (patients only)</label>
+          <input class="form-control form-control-sm" name="patient_id" placeholder="P011">
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary mb-1">Initial password</label>
+          <input class="form-control form-control-sm" type="password" name="password" required minlength="8">
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-brand btn-sm w-100">
+            <i class="bi bi-person-plus"></i> Create user
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="surface p-0 h-100">
+      <div class="p-3 border-bottom">
+        <h5 class="mb-0"><i class="bi bi-box-arrow-in-right text-primary me-1"></i> Recent logins</h5>
+      </div>
+      <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+        <table class="table-app mb-0">
+          <thead><tr><th>When</th><th>User</th><th>Outcome</th><th>IP</th></tr></thead>
+          <tbody>
+            {% for ev in recent_logins %}
+              <tr>
+                <td><code>{{ ev.ts }}</code></td>
+                <td><code>{{ ev.username }}</code></td>
+                <td>
+                  {% if ev.outcome == 'success' %}<span class="text-success">success</span>
+                  {% else %}<span class="text-danger">{{ ev.outcome }}</span>{% endif %}
+                </td>
+                <td>{{ ev.ip or '—' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-center muted py-3">No login events yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="surface p-0 h-100">
+      <div class="p-3 border-bottom">
+        <h5 class="mb-0"><i class="bi bi-search text-primary me-1"></i> Recent queries</h5>
+      </div>
+      <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+        <table class="table-app mb-0">
+          <thead><tr><th>When</th><th>Actor</th><th>Endpoint</th><th>Results</th></tr></thead>
+          <tbody>
+            {% for q in recent_queries %}
+              <tr>
+                <td><code>{{ q.ts }}</code></td>
+                <td><code>{{ q.actor or '—' }}</code></td>
+                <td><code>{{ q.endpoint }}</code></td>
+                <td>{{ q.result_count if q.result_count is not none else '—' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4" class="text-center muted py-3">No queries logged yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="surface p-4 h-100" style="border: 1px solid #fecaca; background: linear-gradient(180deg, #fef2f2, white 60%);">
+      <h5 class="mb-2 text-danger"><i class="bi bi-exclamation-octagon-fill me-1"></i> Insider tamper simulator</h5>
+      <p class="muted tiny">
+        Flip a single byte inside one node's <code>chain.jsonl</code> to demonstrate that the
+        gateway's integrity check refuses to attest the chain once any field is mutated.
+      </p>
+      <form method="post" action="{{ url_for('web_admin_tamper') }}" class="row g-2">
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary mb-1">Target node</label>
+          <select class="form-select form-select-sm" name="node_id" required>
+            {% for s in node_statuses %}
+              {% if s.online %}
+                <option value="{{ s.node_id }}">{{ s.node_id }} &middot; height {{ s.head.get('height', 0) }}</option>
+              {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label small fw-semibold text-secondary mb-1">Block height</label>
+          <input class="form-control form-control-sm" type="number" name="height" min="1" value="1" required>
+        </div>
+        <div class="col-6">
+          <label class="form-label small fw-semibold text-secondary mb-1">Field</label>
+          <select class="form-select form-select-sm" name="field">
+            <option value="ciphertext">ciphertext</option>
+            <option value="tag">tag</option>
+            <option value="nonce">nonce</option>
+            <option value="previous_hash">previous_hash</option>
+            <option value="timestamp">timestamp</option>
+          </select>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-brand w-100" style="background: linear-gradient(135deg, #b91c1c, #7c3aed);"
+                  onclick="return confirm('Mutate this block? You will be redirected to the integrity check.');">
+            <i class="bi bi-exclamation-octagon"></i> Simulate insider tamper
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="surface p-4 h-100">
+      <h5 class="mb-2"><i class="bi bi-arrow-counterclockwise text-primary me-1"></i> Reset audit chains</h5>
+      <p class="muted tiny">
+        Wipes <code>chain.jsonl</code> on every node back to genesis.  Useful after re-bootstrapping
+        users (encrypted records become unreadable when reader RSA keys are rotated).
+      </p>
+      <form method="post" action="{{ url_for('web_admin_chain_reset') }}"
+            onsubmit="return confirm('Wipe ALL audit chains? This is irreversible.');">
+        <button class="btn btn-brand w-100" type="submit"
+                style="background: linear-gradient(135deg, #b45309, #9333ea);">
+          <i class="bi bi-eraser"></i> Reset all node chains
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

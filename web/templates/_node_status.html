@@ -1,0 +1,31 @@
+{# Reusable node-status panel.  Expects `node_statuses` in context. #}
+<div class="row g-3 mb-4">
+  {% for s in node_statuses %}
+    <div class="col-md-4">
+      <div class="node-tile {% if s.online %}is-online{% else %}is-offline{% endif %}">
+        <div class="node-tile-header">
+          <span><i class="bi bi-hdd-network me-1 text-secondary"></i>{{ s.node_id }}</span>
+          {% if s.online %}
+            <span><span class="status-dot up"></span><small class="text-success fw-semibold">online</small></span>
+          {% else %}
+            <span><span class="status-dot down"></span><small class="text-danger fw-semibold">offline</small></span>
+          {% endif %}
+        </div>
+        <div class="node-tile-url">{{ s.url }}</div>
+        {% if s.online %}
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <span class="badge-soft"><i class="bi bi-stack me-1"></i>height <strong class="ms-1">{{ s.head.get('height', 0) }}</strong></span>
+            {% set h = s.head.get('current_hash', '') %}
+            {% if h %}
+              <span class="hash-chip" data-hash="{{ h }}" title="Click to copy"><i class="bi bi-link-45deg"></i>{{ h[:14] }}…</span>
+            {% else %}
+              <span class="muted tiny">empty chain</span>
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="text-danger tiny mt-1">{{ s.error or 'unreachable' }}</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>

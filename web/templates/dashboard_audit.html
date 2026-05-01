@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Audit dashboard &middot; {{ user.username }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+  <div>
+    <h3 class="mb-1">{{ user.username }} <span class="role-badge role-{{ user.role }} ms-2">{{ user.role }}</span></h3>
+    <p class="muted mb-0">
+      Investigator console.  Search, filter, and trace every audit access across all patients.
+      Inspect node ledgers and run integrity verification from the navigation bar.
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-ghost" href="{{ url_for('web_nodes') }}"><i class="bi bi-diagram-3"></i> Inspect nodes</a>
+    <a class="btn btn-brand" href="{{ url_for('web_verify') }}"><i class="bi bi-shield-check"></i> Run integrity check</a>
+  </div>
+</div>
+
+{% set unique_patients = records|map(attribute='patient_id')|reject('none')|unique|list %}
+{% set unique_doctors  = records|map(attribute='user_id')|reject('none')|unique|list %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-stack"></i> Records visible</span>
+    <span class="stat-value">{{ records|length }}</span>
+    <span class="stat-help">{% if filter_patient_id %}filtered to {{ filter_patient_id }}{% else %}across {{ unique_patients|length }} patient(s){% endif %}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile tile-success">
+    <span class="stat-label"><i class="bi bi-people"></i> Patients touched</span>
+    <span class="stat-value">{{ unique_patients|length }}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-person-badge"></i> Distinct writers</span>
+    <span class="stat-value">{{ unique_doctors|length }}</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile tile-success">
+    <span class="stat-label"><i class="bi bi-shield-check"></i> Network</span>
+    <span class="stat-value">{{ node_statuses|selectattr('online')|list|length }}/{{ node_statuses|length }}</span>
+    <span class="stat-help">nodes online</span>
+  </div></div>
+</div>
+
+<div class="surface p-3 mb-4">
+  <form method="get" action="{{ url_for('web_dashboard') }}" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label small fw-semibold text-secondary mb-1">Patient</label>
+      <select class="form-select form-select-sm" name="patient_id">
+        <option value="">— all patients —</option>
+        {% for p in patients %}
+          <option value="{{ p.patient_id }}" {% if p.patient_id == filter_patient_id %}selected{% endif %}>
+            {{ p.patient_id }} &middot; {{ p.username }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small fw-semibold text-secondary mb-1">Action</label>
+      <select class="form-select form-select-sm" name="action">
+        <option value="">— any —</option>
+        {% for a in ['create','change','query','print','copy','delete'] %}
+          <option value="{{ a }}" {% if a == filter_action %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label small fw-semibold text-secondary mb-1">Free-text search</label>
+      <input class="form-control form-control-sm" name="q" value="{{ filter_q }}" placeholder="doctor id, patient id, or notes…">
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button class="btn btn-brand btn-sm flex-grow-1" type="submit"><i class="bi bi-funnel"></i> Apply</button>
+      {% if filter_patient_id or filter_action or filter_q %}
+        <a class="btn btn-ghost btn-sm" href="{{ url_for('web_dashboard') }}"><i class="bi bi-x-circle"></i></a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="surface p-0 mb-4">
+  <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+    <h5 class="mb-0"><i class="bi bi-journal-text text-primary me-1"></i> Audit records</h5>
+    <span class="badge-soft">{{ records|length }} matched</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table-app mb-0">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Patient</th>
+          <th>Doctor</th>
+          <th>Action</th>
+          <th>Notes</th>
+          <th>Block</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records|reverse %}
+          {% if r.undecryptable %}
+            <tr class="text-warning">
+              <td class="muted">—</td><td>—</td><td>—</td><td><em>unreadable</em></td><td><em>{{ r.error }}</em></td>
+              <td><a class="hash-chip" href="{{ url_for('web_record_detail', record_id=r.record_id) }}">{{ r.block_id }}</a></td>
+            </tr>
+          {% else %}
+            <tr>
+              <td><code>{{ r.timestamp }}</code></td>
+              <td><code>{{ r.patient_id }}</code></td>
+              <td><code>{{ r.user_id }}</code></td>
+              <td><span class="role-badge role-doctor">{{ r.action_type }}</span></td>
+              <td>{{ r.details }}</td>
+              <td><a class="hash-chip" href="{{ url_for('web_record_detail', record_id=r.record_id) }}">{{ r.block_id }}</a></td>
+            </tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="6" class="text-center muted py-4">No records match the current filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if recent_queries %}
+  <div class="surface p-0">
+    <div class="p-3 border-bottom">
+      <h5 class="mb-0"><i class="bi bi-search text-primary me-1"></i> Recent investigator queries</h5>
+      <span class="muted tiny">Read-side audit log: who has been searching what, including this account.</span>
+    </div>
+    <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+      <table class="table-app mb-0">
+        <thead><tr><th>When</th><th>Actor</th><th>Endpoint</th><th>Patient filter</th><th>Results</th></tr></thead>
+        <tbody>
+          {% for q in recent_queries %}
+            <tr>
+              <td><code>{{ q.ts }}</code></td>
+              <td><code>{{ q.actor or '—' }}</code> <span class="role-badge role-{{ q.role or 'patient' }}">{{ q.role or '—' }}</span></td>
+              <td><code>{{ q.endpoint }}</code></td>
+              <td>{{ q.patient_filter or '—' }}</td>
+              <td>{{ q.result_count if q.result_count is not none else '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}

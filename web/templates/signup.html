@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Create patient account{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-6 col-md-8">
+    <div class="surface p-4">
+      <h4 class="mb-2"><i class="bi bi-person-plus text-primary me-1"></i> Create patient account</h4>
+      <p class="muted small mb-4">
+        New patients can self-register here.  Your account will be linked to a unique
+        patient ID and the gateway will generate a personal RSA key so doctors can
+        write encrypted audit records that <strong>only you</strong> (and audit companies)
+        can read.
+      </p>
+
+      <form method="post" action="{{ url_for('web_signup_submit') }}" class="row g-3">
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary">Username</label>
+          <input class="form-control" name="username" required autocomplete="username" pattern="[a-zA-Z0-9_\-]{3,32}"
+                 title="3-32 letters, digits, underscore or dash">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary">Password</label>
+          <input class="form-control" type="password" name="password" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold text-secondary">Confirm password</label>
+          <input class="form-control" type="password" name="confirm" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold text-secondary">Patient ID</label>
+          <input class="form-control" name="patient_id" required value="{{ suggested_patient_id or '' }}" pattern="P\d{3}"
+                 title="Format: P followed by 3 digits, e.g. P011">
+          <div class="form-text">Suggested next available ID; you can pick any free <code>Pnnn</code>.</div>
+        </div>
+        <div class="col-12 d-flex gap-2">
+          <button type="submit" class="btn btn-brand">
+            <i class="bi bi-person-plus"></i> Create account
+          </button>
+          <a class="btn btn-ghost" href="{{ url_for('web_login') }}">Back to sign in</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

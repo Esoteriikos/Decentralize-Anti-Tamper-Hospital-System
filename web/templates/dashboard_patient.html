@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}My audit log &middot; {{ user.username }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="mb-1">Hello, {{ user.username }} <span class="role-badge role-patient ms-2">patient</span></h3>
+    <p class="muted mb-0">
+      Patient ID <code>{{ user.patient_id }}</code>.  Below is every access event a clinician
+      has recorded against your medical record.  You are the only person (besides registered
+      audit companies) who can decrypt these entries.
+    </p>
+  </div>
+  <a href="{{ url_for('web_dashboard') }}" class="btn btn-ghost">
+    <i class="bi bi-arrow-clockwise"></i> Refresh
+  </a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-stack"></i> Access events</span>
+    <span class="stat-value">{{ records|length }}</span>
+    <span class="stat-help">audit events on your record</span>
+  </div></div>
+  <div class="col-md-4"><div class="stat-tile tile-success">
+    <span class="stat-label"><i class="bi bi-people"></i> Distinct doctors</span>
+    <span class="stat-value">{{ records|map(attribute='user_id')|reject('none')|unique|list|length }}</span>
+    <span class="stat-help">have accessed your record</span>
+  </div></div>
+  <div class="col-md-4"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-calendar3"></i> Latest access</span>
+    <span class="stat-value tiny" style="font-size: .95rem;">{{ records[-1].timestamp if records and records[-1].timestamp else '—' }}</span>
+    <span class="stat-help">UTC</span>
+  </div></div>
+</div>
+
+<div class="surface p-0">
+  <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+    <div>
+      <h5 class="mb-0"><i class="bi bi-journal-text text-primary me-1"></i> Access history</h5>
+      <span class="muted tiny">Newest first.  All entries below were decrypted in your browser session.</span>
+    </div>
+    <span class="badge-soft">{{ records|length }} {{ 'event' if records|length == 1 else 'events' }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table-app mb-0">
+      <thead>
+        <tr>
+          <th style="width: 22%;">When (UTC)</th>
+          <th style="width: 16%;">Action</th>
+          <th style="width: 16%;">Doctor</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records|reverse %}
+          {% if r.undecryptable %}
+            <tr class="text-warning">
+              <td class="muted">—</td>
+              <td><span class="badge-soft">unreadable</span></td>
+              <td class="muted">—</td>
+              <td><em>This record could not be decrypted with your current key (chain may have been reset).</em></td>
+            </tr>
+          {% else %}
+            <tr>
+              <td><code>{{ r.timestamp }}</code></td>
+              <td><span class="role-badge role-doctor">{{ r.action_type }}</span></td>
+              <td><code>{{ r.user_id }}</code></td>
+              <td>{{ r.details }}</td>
+            </tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="4" class="text-center muted py-4">No access events yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="muted tiny mt-3 mb-0 text-center">
+  <i class="bi bi-shield-lock"></i> Records are encrypted at rest with AES-256-GCM, sealed for you with RSA-OAEP-2048,
+  and signed by the writing doctor with Ed25519.  Doctors cannot decrypt records back; only you can.
+</p>
+
+{% endblock %}

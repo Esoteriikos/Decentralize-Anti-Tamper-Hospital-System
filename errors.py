@@ -3,7 +3,7 @@ class AuditSystemError(Exception):
 
 
 class AuthenticationError(AuditSystemError):
-    """Raised when credentials are invalid."""
+    """Raised when credentials or tokens are invalid."""
 
 
 class AuthorizationError(AuditSystemError):
@@ -17,3 +17,10 @@ class IntegrityError(AuditSystemError):
 class ValidationError(AuditSystemError):
     """Raised when input data is malformed or incomplete."""
 
+
+class NotFoundError(AuditSystemError):
+    """Raised when a requested entity does not exist."""
+
+
+class ConsensusError(AuditSystemError):
+    """Raised when a quorum of nodes cannot be reached."""

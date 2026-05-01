@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.block.record.record_id }} &middot; Record detail{% endblock %}
+{% block content %}
+
+{% set block = detail.block %}
+{% set rec = block.record %}
+{% set actor = block.actor_signature or {} %}
+{% set endors = (detail.endorsement_entry or {}).get('endorsements', []) %}
+
+<div class="d-flex align-items-center gap-2 mb-2">
+  <a href="{{ url_for('web_dashboard') }}" class="btn btn-ghost btn-sm"><i class="bi bi-arrow-left"></i> Back</a>
+  <span class="badge-soft"><i class="bi bi-stack"></i> height {{ block.height }}</span>
+  <span class="action-chip action-{{ rec.action_type }}"><i class="bi bi-tag"></i> {{ rec.action_type }}</span>
+  {% if detail.decrypt_status == 'ok' %}
+    <span class="role-badge role-doctor"><i class="bi bi-unlock"></i> decrypted</span>
+  {% elif detail.decrypt_status == 'not-in-wrapped-keys' %}
+    <span class="role-badge role-audit_company"><i class="bi bi-key"></i> sealed against you</span>
+  {% elif detail.decrypt_status == 'no-reader-key' %}
+    <span class="role-badge role-admin"><i class="bi bi-x-octagon"></i> no reader key</span>
+  {% else %}
+    <span class="role-badge role-admin"><i class="bi bi-shield-lock"></i> not authorized</span>
+  {% endif %}
+</div>
+
+<h3 class="mb-1"><code>{{ rec.record_id }}</code></h3>
+<p class="muted mb-3">
+  Block <code>{{ block.block_id }}</code> &middot; broadcast at {{ block.timestamp }}
+</p>
+
+<div class="row g-3">
+  {# left column: payload + actor + chain #}
+  <div class="col-lg-7">
+
+    <div class="surface p-4 mb-3">
+      <h5 class="mb-3"><i class="bi bi-file-earmark-text text-primary me-1"></i> Decrypted payload</h5>
+      {% if detail.plaintext %}
+        <ul class="kv-list">
+          <li><span class="k">record_id</span><span class="v"><code>{{ detail.plaintext.record_id }}</code></span></li>
+          <li><span class="k">patient_id</span><span class="v">{{ detail.plaintext.patient_id }}</span></li>
+          <li><span class="k">action_type</span><span class="v"><span class="action-chip action-{{ detail.plaintext.action_type }}">{{ detail.plaintext.action_type }}</span></span></li>
+          <li><span class="k">user_id (writer)</span><span class="v">{{ detail.plaintext.user_id }}</span></li>
+          <li><span class="k">timestamp</span><span class="v">{{ detail.plaintext.timestamp }}</span></li>
+          <li><span class="k">details</span><span class="v">{{ detail.plaintext.details }}</span></li>
+        </ul>
+      {% elif user.role == 'doctor' %}
+        <div class="alert alert-secondary mb-0 small" style="background: var(--brand-50); color: var(--ink-2);">
+          <i class="bi bi-shield-lock me-1 text-primary"></i>
+          Doctors are <strong>writers only</strong>.  The wrapping ceremony does not include
+          your reader key, so the gateway refuses to decrypt the payload for you.
+        </div>
+      {% else %}
+        <div class="alert alert-warning small mb-0">
+          <i class="bi bi-lock-fill me-1"></i>
+          Status: <strong>{{ detail.decrypt_status }}</strong>.
+          You are not in this record's wrapped-keys list, so the AES key cannot be unwrapped for you.
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="surface p-4 mb-3">
+      <h5 class="mb-3"><i class="bi bi-link-45deg text-primary me-1"></i> Hash chain</h5>
+      <ul class="kv-list">
+        <li><span class="k">previous_hash</span><span class="v">
+          <span class="hash-chip" data-hash="{{ block.previous_hash }}">{{ block.previous_hash[:42] }}…</span>
+        </span></li>
+        <li><span class="k">current_hash</span><span class="v">
+          <span class="hash-chip" data-hash="{{ block.current_hash }}">{{ block.current_hash[:42] }}…</span>
+        </span></li>
+        <li><span class="k">version</span><span class="v">{{ block.version }}</span></li>
+      </ul>
+    </div>
+
+    <div class="surface p-4 mb-3">
+      <h5 class="mb-3"><i class="bi bi-pen text-primary me-1"></i> Actor (writer) signature</h5>
+      <ul class="kv-list">
+        <li><span class="k">signer</span><span class="v"><code>{{ actor.signer }}</code></span></li>
+        <li><span class="k">algorithm</span><span class="v">{{ actor.alg or 'Ed25519' }}</span></li>
+        <li><span class="k">value</span><span class="v">
+          <span class="hash-chip" data-hash="{{ actor.value }}">{{ (actor.value or '')[:42] }}…</span>
+        </span></li>
+      </ul>
+      <p class="muted tiny mt-2 mb-0">
+        Signature is computed over a canonicalised header that includes the writer's identity.
+        Independent verification by the storage nodes prevents impersonation.
+      </p>
+    </div>
+
+    <div class="surface p-4">
+      <h5 class="mb-3"><i class="bi bi-braces text-primary me-1"></i> Raw block</h5>
+      <pre class="code-block">{{ block | tojson(indent=2) }}</pre>
+    </div>
+  </div>
+
+  {# right column: endorsements + readers + per-node #}
+  <div class="col-lg-5">
+
+    <div class="surface p-4 mb-3">
+      <h5 class="mb-3">
+        <i class="bi bi-check2-circle text-primary me-1"></i>
+        Node endorsements
+        <span class="badge-soft ms-1">{{ endors|length }}</span>
+      </h5>
+      {% if endors %}
+        <ul class="list-unstyled mb-0">
+          {% for e in endors %}
+            <li class="border-top py-2 small">
+              <div class="d-flex justify-content-between">
+                <span><i class="bi bi-hdd-network me-1 text-success"></i><strong>{{ e.signer or e.node_id }}</strong></span>
+                <span class="badge-soft">{{ e.alg or 'Ed25519' }}</span>
+              </div>
+              <span class="hash-chip mt-1" data-hash="{{ e.value }}">{{ (e.value or '')[:30] }}…</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="muted tiny">No endorsement record found in gateway log.</div>
+      {% endif %}
+      <p class="muted tiny mt-2 mb-0">
+        Quorum requirement: <strong>2-of-3</strong>.
+        Each node verifies the actor signature, recomputes the chain hash, and signs the result with its own Ed25519 key.
+      </p>
+    </div>
+
+    <div class="surface p-4 mb-3">
+      <h5 class="mb-3"><i class="bi bi-people text-primary me-1"></i> Wrapped readers</h5>
+      <p class="muted tiny mb-2">
+        The AES-256 record key was wrapped with RSA-OAEP for each of these reader IDs.
+      </p>
+      <div class="d-flex flex-wrap gap-1">
+        {% for rid in detail.wrapped_reader_ids %}
+          {% if rid == user.user_id %}
+            <span class="badge-soft" style="background: var(--brand-50); color: var(--brand-700); border-color: var(--brand-100);">
+              <i class="bi bi-key-fill"></i> {{ rid }} (you)
+            </span>
+          {% else %}
+            <span class="badge-soft"><i class="bi bi-key"></i> {{ rid }}</span>
+          {% endif %}
+        {% endfor %}
+        {% if not detail.wrapped_reader_ids %}<span class="muted tiny">none</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="surface p-4">
+      <h5 class="mb-3"><i class="bi bi-diagram-3 text-primary me-1"></i> Per-node presence</h5>
+      <ul class="list-unstyled mb-0">
+        {% for nid, info in detail.per_node.items() %}
+          <li class="border-top py-2 d-flex align-items-center gap-2 small">
+            {% if not info.online %}
+              <span class="status-dot down"></span><strong>{{ nid }}</strong>
+              <span class="muted tiny ms-auto">offline</span>
+            {% elif info.matches_majority %}
+              <span class="status-dot up"></span><strong>{{ nid }}</strong>
+              <span class="text-success ms-auto"><i class="bi bi-check-circle-fill"></i> matches majority</span>
+            {% elif info.present %}
+              <span class="status-dot down"></span><strong>{{ nid }}</strong>
+              <span class="text-danger ms-auto"><i class="bi bi-exclamation-triangle-fill"></i> hash differs</span>
+            {% else %}
+              <span class="status-dot down"></span><strong>{{ nid }}</strong>
+              <span class="text-warning ms-auto"><i class="bi bi-question-circle"></i> missing</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

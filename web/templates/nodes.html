@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Storage nodes &middot; ledger view{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-3">
+  <div>
+    <h3 class="mb-1"><i class="bi bi-diagram-3 text-primary me-1"></i> Storage nodes</h3>
+    <p class="muted mb-0">
+      Side-by-side view of every node's chain.  Blocks shown in red have a <code>current_hash</code>
+      that disagrees across nodes &mdash; the integrity check would refuse to attest those.
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('web_dashboard') }}" class="btn btn-ghost"><i class="bi bi-arrow-left"></i> Dashboard</a>
+    <a href="{{ url_for('web_verify') }}" class="btn btn-brand"><i class="bi bi-shield-check"></i> Run integrity check</a>
+  </div>
+</div>
+
+{% include "_node_status.html" %}
+
+{% if diverged_heights %}
+  <div class="banner-tamper mb-3">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>
+      <strong>Divergence detected.</strong>
+      Heights {{ diverged_heights|sort|join(', ') }} disagree between nodes.
+      One or more nodes have been tampered with.
+    </div>
+  </div>
+{% else %}
+  <div class="banner-clean mb-3">
+    <i class="bi bi-check-circle-fill"></i>
+    <div>
+      <strong>All nodes agree.</strong>
+      Every node reports identical block hashes at every height.
+    </div>
+  </div>
+{% endif %}
+
+<div class="ledger-grid">
+  {% for nid, info in per_node.items() %}
+    <div>
+      <div class="surface p-3 mb-2">
+        <div class="d-flex align-items-center justify-content-between">
+          <strong><i class="bi bi-hdd-network me-1"></i>{{ nid }}</strong>
+          {% if info.online %}
+            <span><span class="status-dot up"></span><small class="text-success">online</small></span>
+          {% else %}
+            <span><span class="status-dot down"></span><small class="text-danger">offline</small></span>
+          {% endif %}
+        </div>
+        <div class="muted tiny">{{ info.url }} &middot; {{ info.blocks|length }} blocks</div>
+      </div>
+
+      {% if info.online %}
+        {% for b in info.blocks %}
+          <div class="ledger-block {% if b.height in diverged_heights %}diverged{% endif %}">
+            <div class="lb-head">
+              <span><i class="bi bi-stack"></i> h={{ b.height }}</span>
+              <span class="action-chip action-{{ b.record.action_type }}">{{ b.record.action_type }}</span>
+            </div>
+            <div class="muted tiny mb-1">
+              <code>{{ b.record.record_id }}</code>
+              {% if b.height in diverged_heights %}
+                <span class="text-danger ms-1"><i class="bi bi-exclamation-octagon-fill"></i> diverged</span>
+              {% endif %}
+            </div>
+            <span class="hash-chip" data-hash="{{ b.current_hash }}"><i class="bi bi-link-45deg"></i>{{ b.current_hash[:18] }}…</span>
+          </div>
+        {% endfor %}
+        {% if not info.blocks %}<div class="muted tiny p-3">empty chain</div>{% endif %}
+      {% else %}
+        <div class="surface p-3 text-danger small">
+          <i class="bi bi-x-octagon"></i> {{ info.error or 'unreachable' }}
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

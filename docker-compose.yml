@@ -1,0 +1,95 @@
+# Brings up three independent node containers + the gateway.
+# Each service has its own volume so the chains are persistent across
+# restarts.  The gateway sees nodes at internal hostnames (node_a etc.)
+# but the host browser can still hit the gateway on http://localhost:5310.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: audit_postgres
+    environment:
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit
+      POSTGRES_DB: audit
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit -d audit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  node_a:
+    build: .
+    container_name: audit_node_a
+    environment:
+      NODE_ID: node_a
+      NODE_HOST: 0.0.0.0
+      NODE_PORT: "5311"
+    volumes:
+      - node_a_data:/app/data/nodes/node_a
+    ports:
+      - "5311:5311"
+    restart: unless-stopped
+
+  node_b:
+    build: .
+    container_name: audit_node_b
+    environment:
+      NODE_ID: node_b
+      NODE_HOST: 0.0.0.0
+      NODE_PORT: "5312"
+    volumes:
+      - node_b_data:/app/data/nodes/node_b
+    ports:
+      - "5312:5312"
+    restart: unless-stopped
+
+  node_c:
+    build: .
+    container_name: audit_node_c
+    environment:
+      NODE_ID: node_c
+      NODE_HOST: 0.0.0.0
+      NODE_PORT: "5313"
+    volumes:
+      - node_c_data:/app/data/nodes/node_c
+    ports:
+      - "5313:5313"
+    restart: unless-stopped
+
+  gateway:
+    build: .
+    container_name: audit_gateway
+    command: ["python", "-m", "gateway"]
+    environment:
+      GATEWAY_HOST: 0.0.0.0
+      GATEWAY_PORT: "5310"
+      NODE_A_URL: http://node_a:5311
+      NODE_B_URL: http://node_b:5312
+      NODE_C_URL: http://node_c:5313
+      DATABASE_URL: postgresql+psycopg://audit:audit@postgres:5432/audit
+    volumes:
+      - gateway_data:/app/data/gateway
+    ports:
+      - "5310:5310"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      node_a:
+        condition: service_started
+      node_b:
+        condition: service_started
+      node_c:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  node_a_data:
+  node_b_data:
+  node_c_data:
+  gateway_data:

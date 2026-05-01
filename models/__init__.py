@@ -1,5 +1,4 @@
-from .audit_record import AuditRecord
 from .user import User
+from .block import Block, RecordPayload, WrappedKey, NodeEndorsement, ActorSignature
 
-__all__ = ["AuditRecord", "User"]
-
+__all__ = ["User", "Block", "RecordPayload", "WrappedKey", "NodeEndorsement", "ActorSignature"]

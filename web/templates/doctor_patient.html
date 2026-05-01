@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Patient {{ patient.patient_id }} &middot; {{ user.username }}{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-3 mb-3">
+  <div>
+    <h3 class="mb-1">Patient <code>{{ patient.patient_id }}</code></h3>
+    <p class="muted mb-0">Username <code>{{ patient.username }}</code> &middot; encrypted record visible to patient and audit companies only.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ url_for('web_dashboard') }}">
+    <i class="bi bi-arrow-left"></i> Back to dashboard
+  </a>
+</div>
+
+<div class="surface p-4 mb-4">
+  <h5 class="mb-3"><i class="bi bi-plus-circle text-primary me-1"></i> Quick record event for {{ patient.patient_id }}</h5>
+  <form method="post" action="{{ url_for('web_create_audit') }}" class="row g-3">
+    <input type="hidden" name="patient_id" value="{{ patient.patient_id }}">
+    <div class="col-md-4">
+      <label class="form-label small fw-semibold text-secondary">Action</label>
+      <select class="form-select" name="action_type" required>
+        {% for a in ['create','change','query','print','copy','delete'] %}
+          <option value="{{ a }}">{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label small fw-semibold text-secondary">Notes</label>
+      <input class="form-control" name="details" required placeholder="What did you access?">
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="submit" class="btn btn-brand w-100">
+        <i class="bi bi-broadcast"></i> Sign
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="surface p-4">
+  <h5 class="mb-3"><i class="bi bi-clock-history text-primary me-1"></i> My past writes for {{ patient.patient_id }}</h5>
+  {% if my_writes %}
+    <div class="table-responsive">
+      <table class="table-app mb-0">
+        <thead><tr><th>When (UTC)</th><th>Block</th><th>Endorsements</th></tr></thead>
+        <tbody>
+          {% for w in my_writes %}
+            {% set hdr = w.sig_header or {} %}
+            <tr>
+              <td><code>{{ hdr.timestamp }}</code></td>
+              <td>{{ w.block_id }} <span class="muted tiny">h={{ w.height }}</span></td>
+              <td>{{ w.endorsements|length }} / 3 nodes</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-center muted py-4 mb-0">No writes yet for this patient.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

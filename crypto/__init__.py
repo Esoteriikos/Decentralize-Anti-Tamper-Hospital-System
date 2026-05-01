@@ -1,4 +1,49 @@
-from .crypto_manager import CryptoManager
+from .primitives import (
+    sha256_hex,
+    aesgcm_encrypt,
+    aesgcm_decrypt,
+    rsa_generate_keypair,
+    rsa_public_pem,
+    rsa_private_pem,
+    rsa_load_public_pem,
+    rsa_load_private_pem,
+    rsa_oaep_wrap,
+    rsa_oaep_unwrap,
+    ed25519_generate_keypair,
+    ed25519_public_b64,
+    ed25519_private_b64,
+    ed25519_load_public_b64,
+    ed25519_load_private_b64,
+    ed25519_sign,
+    ed25519_verify,
+    scrypt_hash,
+    scrypt_verify,
+    chain_hash,
+)
+from .envelope import encrypt_record_payload, decrypt_record_payload, EnvelopeResult
 
-__all__ = ["CryptoManager"]
-
+__all__ = [
+    "sha256_hex",
+    "aesgcm_encrypt",
+    "aesgcm_decrypt",
+    "rsa_generate_keypair",
+    "rsa_public_pem",
+    "rsa_private_pem",
+    "rsa_load_public_pem",
+    "rsa_load_private_pem",
+    "rsa_oaep_wrap",
+    "rsa_oaep_unwrap",
+    "ed25519_generate_keypair",
+    "ed25519_public_b64",
+    "ed25519_private_b64",
+    "ed25519_load_public_b64",
+    "ed25519_load_private_b64",
+    "ed25519_sign",
+    "ed25519_verify",
+    "scrypt_hash",
+    "scrypt_verify",
+    "chain_hash",
+    "encrypt_record_payload",
+    "decrypt_record_payload",
+    "EnvelopeResult",
+]

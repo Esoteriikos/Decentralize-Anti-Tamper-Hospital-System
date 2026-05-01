@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Integrity check{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-3">
+  <div>
+    <h3 class="mb-1"><i class="bi bi-shield-check text-primary me-1"></i> Integrity verification</h3>
+    <p class="muted mb-0">
+      Pulls every chain, recomputes hashes, verifies actor + endorsement signatures, and
+      reports cross-node divergence.
+    </p>
+  </div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-ghost" href="{{ url_for('web_nodes') }}"><i class="bi bi-diagram-3"></i> Nodes ledger</a>
+    <a class="btn btn-brand" href="{{ url_for('web_verify') }}"><i class="bi bi-arrow-clockwise"></i> Re-run</a>
+    {% if user.role == 'admin' %}
+      <a class="btn btn-ghost" href="{{ url_for('web_admin') }}"><i class="bi bi-tools"></i> Admin console</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if report.all_checks_passed %}
+  <div class="banner-clean mb-4">
+    <i class="bi bi-shield-fill-check"></i>
+    <div>
+      <strong>All checks passed.</strong>
+      {{ report.majority_nodes|length }} node(s) agree on a chain of {{ report.majority_height }} block(s).
+      Hashes valid &middot; actor signatures valid &middot; no divergences.
+    </div>
+  </div>
+{% else %}
+  <div class="banner-tamper mb-4">
+    <i class="bi bi-shield-fill-exclamation"></i>
+    <div>
+      <strong>Integrity issues detected.</strong>
+      {% if not report.network_consistent %}
+        Cross-node divergence at height(s):
+        {% for d in report.divergences %}<code>{{ d.height }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      {% endif %}
+      See per-node breakdown below.
+    </div>
+  </div>
+{% endif %}
+
+{# stat tiles summary #}
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="stat-tile {% if report.all_checks_passed %}tile-success{% else %}tile-danger{% endif %}">
+    <span class="stat-label"><i class="bi bi-shield"></i> Overall</span>
+    <span class="stat-value" style="font-size: 1.05rem;">
+      {% if report.all_checks_passed %}clean{% else %}compromised{% endif %}
+    </span>
+    <span class="stat-help">aggregate verdict</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile {% if report.network_consistent %}tile-success{% else %}tile-danger{% endif %}">
+    <span class="stat-label"><i class="bi bi-diagram-2"></i> Network</span>
+    <span class="stat-value" style="font-size: 1.05rem;">
+      {% if report.network_consistent %}consistent{% else %}{{ report.divergences|length }} divergence(s){% endif %}
+    </span>
+    <span class="stat-help">cross-node hash agreement</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-people"></i> Majority</span>
+    <span class="stat-value">{{ report.majority_nodes|length }}/{{ report.per_node|length }}</span>
+    <span class="stat-help">nodes on majority chain</span>
+  </div></div>
+  <div class="col-md-3"><div class="stat-tile">
+    <span class="stat-label"><i class="bi bi-stack"></i> Majority height</span>
+    <span class="stat-value">{{ report.majority_height }}</span>
+    <span class="stat-help">blocks at quorum</span>
+  </div></div>
+</div>
+
+<div class="section-title"><i class="bi bi-hdd-network"></i> Storage network</div>
+{% include "_node_status.html" %}
+
+<div class="section-title"><i class="bi bi-list-check"></i> Per-node verification</div>
+<div class="row g-3 mb-4">
+  {% for nid, r in report.per_node.items() %}
+    <div class="col-md-4">
+      <div class="surface p-3 h-100" style="
+        {% if r.online and r.get('valid') %}border-color: #a7f3d0;{% elif r.online %}border-color: #fca5a5;{% else %}border-color: #fde68a;{% endif %}
+      ">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <strong><i class="bi bi-hdd-network me-1"></i>{{ nid }}</strong>
+          {% if not r.online %}
+            <span class="badge-soft text-warning"><i class="bi bi-x-octagon"></i> offline</span>
+          {% elif r.valid %}
+            <span class="role-badge role-doctor"><i class="bi bi-check-circle-fill"></i> valid</span>
+          {% else %}
+            <span class="role-badge role-admin"><i class="bi bi-x-octagon-fill"></i> failed</span>
+          {% endif %}
+        </div>
+
+        {% if r.online %}
+          <ul class="kv-list">
+            <li><span class="k">block_count</span><span class="v">{{ r.block_count }}</span></li>
+            <li><span class="k">chain links</span><span class="v">{% if r.valid_chain %}<i class="bi bi-check2 text-success"></i>{% else %}<i class="bi bi-x text-danger"></i>{% endif %}</span></li>
+            <li><span class="k">recomputed hashes</span><span class="v">{% if r.valid_hashes %}<i class="bi bi-check2 text-success"></i>{% else %}<i class="bi bi-x text-danger"></i>{% endif %}</span></li>
+            <li><span class="k">actor signatures</span><span class="v">{% if r.valid_actor_signatures %}<i class="bi bi-check2 text-success"></i>{% else %}<i class="bi bi-x text-danger"></i>{% endif %}</span></li>
+          </ul>
+          {% if r.issues %}
+            <details class="mt-2">
+              <summary class="text-danger small fw-semibold" style="cursor: pointer;">
+                <i class="bi bi-exclamation-triangle-fill"></i> {{ r.issues|length }} issue(s)
+              </summary>
+              <ul class="small mt-2 ps-3 text-danger">
+                {% for issue in r.issues %}<li>{{ issue }}</li>{% endfor %}
+              </ul>
+            </details>
+          {% endif %}
+        {% else %}
+          <div class="text-warning small">{{ r.error or 'unreachable' }}</div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% if report.divergences %}
+  <div class="section-title text-danger"><i class="bi bi-exclamation-triangle-fill"></i> Cross-node divergences</div>
+  <div class="surface p-3">
+    <ul class="list-unstyled mb-0">
+      {% for d in report.divergences %}
+        <li class="border-top py-2">
+          <strong>Height {{ d.height }}</strong>
+          <ul class="small muted mb-0 mt-1">
+            {% for hash, nodes in d.branches.items() %}
+              <li><span class="hash-chip" data-hash="{{ hash }}">{{ hash[:24] }}…</span>
+                  &mdash; {{ nodes|join(', ') }}</li>
+            {% endfor %}
+          </ul>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{% endblock %}

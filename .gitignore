@@ -1,7 +1,17 @@
 __pycache__/
 *.pyc
+*.pyo
 .DS_Store
+.venv/
+venv/
+.env
+.pytest_cache/
+.idea/
+.vscode/
+.TODO.md
+.PLAN.md
 
-data/secrets.json
-data/users.json
-data/nodes/node_*_ledger.json
+data/
+!data/.gitkeep
+
+*.log

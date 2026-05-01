@@ -1,367 +1,192 @@
-# Designing a Secure Decentralized Audit System
+# Secure Decentralized EHR Audit System
 
-Course: `CSCI-531 Applied Cryptography`  
-Selected option: `Option 2`  
-Project scope: `Secure decentralized audit system for EHR audit logs`
+CSCI-531 Applied Cryptography — Spring 2026 — Final Project (Option 2)
 
-This repository contains a complete semester-project prototype for the assignment described in `Crypto-Final Project.pdf`. The system generates audit records when EHR data is accessed, encrypts sensitive audit contents, authenticates users, enforces role-based authorization, replicates logs across three independent audit nodes, and detects tampering through authenticated encryption plus SHA-256 hash chaining.
+> A privacy-preserving, append-only audit log for Electronic Health
+> Record (EHR) accesses, replicated across three independent nodes
+> with 2-of-3 quorum, end-to-end envelope encryption, actor signatures,
+> and tamper-evident chain hashes.
 
-## Project Overview
+## What this delivers (rubric → feature mapping)
 
-The prototype simulates a decentralized healthcare audit system with four user roles:
+| Rubric requirement | Where it lives |
+|---|---|
+| **Privacy** of audit records | `crypto/envelope.py` — every record is AES-256-GCM-encrypted with a fresh data key; the data key is RSA-OAEP-2048-wrapped per authorized reader (patient owner + every audit company + admin). Doctors who *write* records cannot *read* them. |
+| **Identification & authorization** of users | `auth/user_store.py`, `auth/jwt_service.py`, `auth/policy.py` — scrypt-hashed passwords, 30-min HS256 JWTs with `jti` revocation, role-based policy matrix. |
+| **Querying** by patients and audit companies | `gateway/audit_service.py` query path; web dashboards in `web/templates/`. |
+| **Immutability / tamper detection** | SHA-256 chain hash linking every block, Ed25519 actor signatures over a canonical sig-header, replication across 3 nodes, `/api/verify` recomputes everything and reports per-node + cross-node divergences. |
+| **Decentralization** | 3 independent Flask node servers (`node_server/`) each with their own Ed25519 keypair, append-only `chain.jsonl`, and 2-of-3 quorum endorsement requirement before the gateway considers a write durable. |
+| **Option 2 bonus** — multi-machine + web UI | `docker-compose.yml` runs 4 separate containers (3 nodes + gateway), `web/templates/` serves a Bootstrap-styled dashboard, full HTTP-only contract between gateway ↔ nodes (no shared memory). |
 
-- `patient`
-- `doctor`
-- `audit_company`
-- `admin`
+All 23 unit tests pass (`python -m pytest`) and the 8-step end-to-end demo is reproducible on Windows + Linux.
 
-Each audit event is split into:
+## Architecture
 
-- Plaintext metadata: `record_id`, `node_id`, `nonce`, `tag`, `previous_hash`, `current_hash`
-- Encrypted sensitive payload: `timestamp`, `patient_id`, `user_id`, `action_type`, `details`
-
-Every new audit event is encrypted with AES-GCM, hash-linked to the previous event, and replicated to three independent audit ledgers stored under `data/nodes/`.
-
-## Assignment Compliance Checklist
-
-This section maps the implementation directly to the assignment requirements for Option 2.
-
-| Requirement / Goal | Status | Where It Is Implemented | Demo Command That Proves It | Notes |
-| --- | --- | --- | --- | --- |
-| Privacy: protect sensitive audit records at rest and in transit | Satisfied | `crypto/crypto_manager.py`, `audit/service.py`, `data/nodes/*.json` | `python3 demo/generate_audit_logs_demo.py` | Sensitive fields are encrypted with AES-GCM before replication and storage. |
-| Privacy: separate encrypted data from plaintext metadata | Satisfied | `audit/service.py`, `demo/generate_audit_logs_demo.py` | `python3 demo/generate_audit_logs_demo.py` | Stored records expose only `record_id`, `node_id`, nonce, tag, and hash-chain metadata. |
-| Identification and authorization: login/authentication | Satisfied | `auth/service.py`, `app.py` | `python3 demo/query_as_patient_demo.py`, `python3 demo/query_as_audit_company_demo.py` | Demo scripts authenticate specific users before queries. |
-| Identification and authorization: roles for patient, doctor, audit_company, admin | Satisfied | `auth/service.py`, `audit/service.py` | `python3 demo/create_users_demo.py` | Sample users are created for all required roles. |
-| Patients can query only their own audit records | Satisfied | `audit/service.py` | `python3 demo/query_as_patient_demo.py` | Patient role is restricted to `requester.patient_id`. |
-| Audit companies can query all patient audit records | Satisfied | `audit/service.py`, `app.py` | `python3 demo/query_as_audit_company_demo.py` | Audit-company role can retrieve all decrypted records. |
-| Unauthorized users must be denied access | Satisfied | `audit/service.py`, `app.py` | `python3 demo/unauthorized_query_demo.py` | Doctor query attempt is rejected with an authorization error. |
-| Queries return decrypted results only to authorized users | Satisfied | `audit/service.py` | `python3 demo/query_as_patient_demo.py`, `python3 demo/query_as_audit_company_demo.py` | Decryption happens only after authorization checks pass. |
-| Audit record fields: timestamp, patient ID, user ID, action type | Satisfied | `audit/service.py`, `demo/bootstrap.py` | `python3 demo/generate_audit_logs_demo.py` | Action types are generated from the required set. |
-| Encrypt audit record contents before storage | Satisfied | `crypto/crypto_manager.py`, `audit/service.py` | `python3 demo/generate_audit_logs_demo.py` | The ledger stores ciphertext rather than plaintext payloads. |
-| Store encrypted record, nonce/IV, authentication tag, previous hash, current hash, node ID | Satisfied | `audit/service.py`, `nodes/service.py` | `python3 demo/generate_audit_logs_demo.py` | Demo prints a stored node record showing these fields. |
-| Immutability / tamper detection with hash chaining | Satisfied | `crypto/crypto_manager.py`, `audit/service.py` | `python3 demo/tamper_demo.py` | Each record includes `previous_hash` and `current_hash`. |
-| Demo scenario where attacker tampers with an audit record and verification reports attack | Satisfied | `demo/tamper_demo.py`, `audit/service.py`, `nodes/service.py` | `python3 demo/tamper_demo.py` | Tampering breaks both hash verification and AES-GCM authentication. |
-| Decentralization: three independent audit nodes | Satisfied | `config.py`, `nodes/service.py`, `data/nodes/` | `python3 demo/generate_audit_logs_demo.py`, `python3 demo/verify_integrity_demo.py` | Three separate ledger files simulate independent audit companies. |
-| New audit records replicated across all three nodes | Satisfied | `nodes/service.py`, `audit/service.py` | `python3 demo/generate_audit_logs_demo.py` | Writes are replicated to `node_a`, `node_b`, and `node_c`. |
-| Verification compares chains across nodes and detects mismatch | Satisfied | `audit/service.py` | `python3 demo/verify_integrity_demo.py`, `python3 demo/tamper_demo.py` | Verification reports per-node integrity and cross-node mismatch. |
-| Client/server style demonstration, even on one machine | Mostly satisfied | `app.py`, `demo/*.py` | `python3 app.py` plus any demo script | Flask provides the server stub; demos mostly exercise the shared service layer directly. |
-
-## Review Findings Against The PDF
-
-### Strongly satisfied areas
-
-- The prototype covers all five project goals named in the PDF: privacy, identification and authorization, queries, immutability, and decentralization.
-- The required user counts are implemented exactly: 10 patients, 2 doctors, 3 audit companies, and 1 admin.
-- The required demo flows are present and runnable with separate scripts.
-- The tamper-detection story is clear and screenshot-friendly, which is useful for both the report and the demo video.
-
-### Missing requirement or weak area
-
-- Weak area: API authentication tokens do not expire. `auth/service.py` includes `issued_at`, but `verify_token()` does not enforce expiration. This is not a failure of the assignment, but it is weaker than a production-grade authentication design.
-- Weak area: queries always decrypt from `node_a`. If `node_a` is the corrupted replica while the other two are healthy, the system does not attempt quorum reads or fail over to a clean node. The assignment requires tamper detection, not fault tolerance, so this is acceptable but worth disclosing.
-- Weak area: the “in transit” security claim is simulated by encrypting before node replication, but the local Flask server itself does not use TLS. For a one-machine prototype this is acceptable, but the README and report should state this explicitly.
-- Weak area: the client/server requirement is only partly demonstrated in the current demos, because the demo scripts call shared Python services directly instead of making HTTP requests to Flask. The server exists and works, but the demos are not API-driven.
-
-### Suggested improvements before submission
-
-- Add one short API demo section to the report that shows `POST /login` and `GET /verify` using `curl` or Postman screenshots.
-- Mention explicitly in the written report that AES-GCM provides both confidentiality and integrity for the sensitive payload.
-- State clearly that the three nodes are simulated as independent ledger files on one host, which satisfies the prototype requirement but not real distributed deployment.
-- If time permits, add token expiration and a small HTTP-based demo client. These are nice improvements, but they are not necessary to satisfy the assignment.
-- In the report, frame the lack of TLS, lack of quorum reads, and local key storage as deliberate prototype limitations rather than oversights.
-
-## Project Structure
-
-```text
-.
-├── README.md
-├── app.py
-├── auth/
-├── audit/
-├── crypto/
-├── data/
-├── demo/
-├── models/
-├── nodes/
-├── report_notes.md
-├── requirements.txt
-├── storage.py
-├── system.py
-└── config.py
+```
+                        ┌──────────────────────┐
+   browser ─── HTTPS ──▶│  Gateway (Flask)     │── REST ──▶ Audit Node A (Flask + chain.jsonl)
+                        │  - login / JWT       │── REST ──▶ Audit Node B (Flask + chain.jsonl)
+                        │  - envelope encrypt  │── REST ──▶ Audit Node C (Flask + chain.jsonl)
+                        │  - actor sign        │
+                        │  - quorum (2 of 3)   │
+                        │  - verify            │
+                        └──────────────────────┘
 ```
 
-## How To Install
+Single-phase commit: the gateway broadcasts the signed block to every node; each node validates height/prev-hash/recomputed-hash, appends to disk, and returns an Ed25519 endorsement over the canonical block header.  The gateway requires **2 of 3** endorsements before reporting success to the actor.  Endorsements are persisted in `data/gateway/endorsements.jsonl` for later auditing.
 
-1. Create and activate a virtual environment if desired.
-2. Install dependencies:
+### Block layout
 
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-## How To Run
-
-### Run the Flask server
-
-```bash
-python3 app.py
-```
-
-The API will start on [http://127.0.0.1:5310](http://127.0.0.1:5310).
-
-Suggested professor demo order:
-
-```bash
-python3 demo/create_users_demo.py
-python3 demo/generate_audit_logs_demo.py
-python3 demo/query_as_patient_demo.py
-python3 demo/query_as_audit_company_demo.py
-python3 demo/unauthorized_query_demo.py
-python3 demo/tamper_demo.py
-python3 demo/generate_audit_logs_demo.py
-python3 demo/verify_integrity_demo.py
-```
-
-The second `generate_audit_logs_demo.py` resets the ledgers back to a clean state after the tamper demonstration.
-
-### Run the demo scripts
-
-```bash
-python3 demo/create_users_demo.py
-python3 demo/generate_audit_logs_demo.py
-python3 demo/query_as_patient_demo.py
-python3 demo/query_as_audit_company_demo.py
-python3 demo/unauthorized_query_demo.py
-python3 demo/tamper_demo.py
-python3 demo/verify_integrity_demo.py
-```
-
-## Demo Scripts And Expected Output
-
-### `python3 demo/create_users_demo.py`
-
-Creates a fresh sample user dataset and resets all three node ledgers.
-
-Expected output highlights:
-
-- `patient: 10`
-- `doctor: 2`
-- `audit_company: 3`
-- `admin: 1`
-- demo passwords for each role
-
-### `python3 demo/generate_audit_logs_demo.py`
-
-Creates encrypted audit records and replicates them to `node_a`, `node_b`, and `node_c`.
-
-Expected output highlights:
-
-- `Generated 18 audit records`
-- preview of decrypted logical records
-- stored node record showing `ciphertext`, `tag`, `previous_hash`, and `current_hash`
-
-### `python3 demo/query_as_patient_demo.py`
-
-Authenticates `patient_01` and returns only records for patient `P001`.
-
-Expected output highlights:
-
-- `Authenticated user: patient_01`
-- only records where `patient_id=P001`
-- decrypted output visible only after successful authentication and authorization
-
-### `python3 demo/query_as_audit_company_demo.py`
-
-Authenticates `audit_company_01` and returns decrypted records across all patients.
-
-Expected output highlights:
-
-- `Authenticated user: audit_company_01`
-- records for multiple patient IDs
-- decrypted output visible for the audit-company role
-
-### `python3 demo/unauthorized_query_demo.py`
-
-Authenticates a doctor and attempts an unauthorized audit query.
-
-Expected output highlights:
-
-- `Authenticated user: doctor_01`
-- `Access denied as expected`
-
-### `python3 demo/tamper_demo.py`
-
-Seeds clean ledgers, verifies them, manually edits ciphertext in one node ledger, and verifies again.
-
-Expected output highlights:
-
-- `All checks passed: True` before tampering
-- `Tampered record AUDIT-0003 on node_b`
-- `All checks passed: False` after tampering
-- mismatch or authentication-failure messages
-
-### `python3 demo/verify_integrity_demo.py`
-
-Runs the verification routine against the current decentralized node state.
-
-Expected output highlights:
-
-- clean state: `All checks passed: True`
-- tampered state: `All checks passed: False`
-
-## Privacy Implementation
-
-- Sensitive audit fields are encrypted with `AES-GCM`.
-- The encrypted payload contains `timestamp`, `patient_id`, `user_id`, `action_type`, and `details`.
-- AES-GCM provides confidentiality and integrity for the sensitive payload.
-- Because encryption happens before replication, the same protected record is kept encrypted during simulated transit and at rest.
-- Plaintext metadata is intentionally minimal and excludes patient identity and event content.
-
-## Authorization Implementation
-
-- User passwords are hashed with Werkzeug password hashing.
-- Users must authenticate before performing privileged operations.
-- Roles are enforced in code.
-- `patient`: can query only their own records.
-- `doctor`: can generate audit events but cannot query audit ledgers.
-- `audit_company`: can query all patient audit records and run verification.
-- `admin`: can generate audit events and query all records.
-
-## Query Restrictions
-
-- A patient query is allowed only when `requester.patient_id == requested_patient_id`.
-- Audit companies can retrieve all patient audit records.
-- Unauthorized users receive an authorization error instead of decrypted output.
-
-## Tamper Detection
-
-- Each record stores `previous_hash` and `current_hash`.
-- `current_hash` is SHA-256 over the record metadata and encrypted payload fields.
-- The verification routine checks whether each `current_hash` recomputes correctly.
-- The verification routine checks whether each `previous_hash` links to the prior record.
-- The verification routine checks whether AES-GCM decryption/authentication still succeeds.
-- The verification routine checks whether all three node ledgers still match.
-- The tamper demo manually edits ciphertext in one node ledger, and verification reports the attack.
-
-## Decentralization Simulation
-
-- Three independent audit nodes are simulated with separate ledger files.
-- `data/nodes/node_a_ledger.json`
-- `data/nodes/node_b_ledger.json`
-- `data/nodes/node_c_ledger.json`
-- Each new audit record is replicated to all three nodes.
-- Verification compares ledgers across nodes and reports divergence.
-- The code runs locally, but the structure treats the ledgers as independent organizations.
-
-## Files That Implement Each Goal
-
-### Privacy
-
-- `crypto/crypto_manager.py`
-- `audit/service.py`
-- `demo/generate_audit_logs_demo.py`
-
-### Identification and authorization
-
-- `auth/service.py`
-- `app.py`
-- `audit/service.py`
-- `demo/create_users_demo.py`
-- `demo/unauthorized_query_demo.py`
-
-### Queries
-
-- `audit/service.py`
-- `app.py`
-- `demo/query_as_patient_demo.py`
-- `demo/query_as_audit_company_demo.py`
-
-### Immutability / tamper detection
-
-- `crypto/crypto_manager.py`
-- `audit/service.py`
-- `nodes/service.py`
-- `demo/tamper_demo.py`
-- `demo/verify_integrity_demo.py`
-
-### Decentralization
-
-- `config.py`
-- `nodes/service.py`
-- `data/nodes/`
-- `audit/service.py`
-
-## API Summary
-
-### `POST /login`
-
-Request body:
-
-```json
+```jsonc
 {
-  "username": "audit_company_01",
-  "password": "AuditPass!"
+  "version": 1,
+  "block_id": "AUDIT-0003",
+  "height": 3,
+  "timestamp": "2026-04-30T18:27:34Z",
+  "previous_hash": "<sha256 of prior block.current_hash>",
+  "record": {
+    "record_id": "AUDIT-0003.1",
+    "patient_id_hash": "<sha256(patient_id)>",
+    "nonce":       "<base64 12-byte GCM nonce>",
+    "ciphertext":  "<base64 AES-256-GCM ciphertext of payload>",
+    "tag":         "<base64 16-byte GCM tag>",
+    "wrapped_keys": [
+      {"reader_id": "patient_03",       "alg": "RSA-OAEP-SHA256", "value": "<b64>"},
+      {"reader_id": "audit_company_01", "alg": "RSA-OAEP-SHA256", "value": "<b64>"},
+      ...
+    ]
+  },
+  "actor_signature": {"signer": "doctor_01", "alg": "Ed25519", "value": "<b64>"},
+  "current_hash":    "<sha256 over the canonical header above, including actor_signature>"
 }
 ```
 
-### `POST /audit/access`
+The actor signs a canonical "sig-header" (everything above except `actor_signature` and `current_hash`).  Nodes recompute `current_hash` over the full header (including the now-populated `actor_signature`) and store the result.  The verifier reverses both steps independently.
 
-Requires `Authorization: Bearer <token>`.
+## Quickstart
 
-Request body:
+The gateway requires **Postgres** for its auth surface (users, login events,
+JWT revocations, query audit log).  Private RSA / Ed25519 keys are sealed at
+rest with AES-256-GCM under a master key (`data/gateway/master.key`, auto
+generated, or set `GATEWAY_MASTER_KEY` to a base64 32-byte value).  Node
+ledgers (`chain.jsonl`) stay decentralised on each node — only the gateway's
+own state is in Postgres.
 
-```json
-{
-  "patient_id": "P001",
-  "action_type": "query",
-  "details": "doctor_01 performed query on the medication history section for P001."
-}
+### Local (Python + Docker for Postgres)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 1. start Postgres in the background
+docker compose up -d postgres
+
+# 2. (optional) override the URL — default is the docker-compose service
+# $env:DATABASE_URL = "postgresql+psycopg://audit:audit@127.0.0.1:5432/audit"
+
+# 3. start the gateway + 3 nodes
+python scripts/dev.py
+
+# in another terminal
+python -m demo.d00_bootstrap         # create sample users
+python -m demo.d01_doctor_creates_audits
+python -m demo.d02_patient_queries_own
+python -m demo.d03_patient_queries_other   
+python -m demo.d04_audit_company_queries_all
+python -m demo.d05_unauthorized_doctor       
+python -m demo.d07_verify                
+python -m demo.d06_tamper_node_b        
+python -m demo.d07_verify                
+
+# or run them all:
+.\scripts\run_demos.ps1
 ```
 
-### `GET /audit/patient/<patient_id>`
+Then browse to <http://127.0.0.1:5310/> and log in (sample passwords below).
 
-Requires `Authorization: Bearer <token>`.
+### Docker (one container per machine, the bonus rubric line)
 
-### `GET /audit/all`
+```powershell
+docker compose up --build
+```
 
-Requires `Authorization: Bearer <token>`.
+Spins up four separate containers (`node_a`, `node_b`, `node_c`, `gateway`), each with its own persistent volume.  Browse to <http://127.0.0.1:5310/>.
 
-### `GET /verify`
+## Sample users
 
-Requires `Authorization: Bearer <token>` and role `audit_company` or `admin`.
+`POST /api/admin/bootstrap` (or the `Bootstrap demo users` button on the login page) creates:
 
-## Assumptions And Limitations
+| Username | Role | Password |
+|---|---|---|
+| `patient_01` … `patient_10` | patient | `PatientPass!` |
+| `doctor_01`, `doctor_02` | doctor | `DoctorPass!` |
+| `audit_company_01` … `audit_company_03` | audit_company | `   !` |
+| `admin_01` | admin | `AdminPass!` |
 
-- The project stores cryptographic material locally in `data/secrets.json`; a real deployment would use an HSM or dedicated key management system.
-- The three nodes are simulated on one machine rather than on separate hosts.
-- The API runs over local HTTP; the prototype demonstrates transport protection conceptually by encrypting before replication, but a real deployment should also use TLS.
-- The system uses full-record queries rather than searchable encrypted indexes.
-- Consensus, fault tolerance, and real blockchain networking are not implemented; decentralization is simulated through independent replicated ledgers plus cross-node verification.
-- Authentication tokens are signed but do not expire.
-- Queries currently read from the primary replica rather than performing quorum selection across nodes.
+The bootstrap endpoint refuses to recreate users if `data/gateway/users.json` is non-empty unless `{"reset": true}` is sent, in which case it requires admin credentials.
 
-## External Packages And Attribution
+## Tests
 
-Written specifically for this project:
+```powershell
+python -m pytest          # 23 tests, ~5s
+```
 
-- authentication, role enforcement, ledger replication, tamper verification, Flask routes, demo scripts, report notes, and project structure
+Coverage:
+* `tests/test_crypto.py` — AES-GCM roundtrip + tamper, RSA-OAEP wrap/unwrap, Ed25519 sign/verify, chain-hash determinism, scrypt password verify, envelope per-reader decryption.
+* `tests/test_authz.py` — full role policy matrix + an in-process end-to-end run (gateway audit-service against three real `Chain` instances, write + patient query + audit-company query + tamper detection).
+* `tests/test_node_server.py` — Flask test client: chain growth, bad prev-hash rejection, bad height rejection.
 
-External packages used:
+## Repository layout
 
-- `Flask`: lightweight web server and API routing
-- `cryptography`: AES-GCM authenticated encryption
-- `Werkzeug` via Flask: password hashing utilities
+```
+app.py                  # convenience entry, runs the gateway
+config.py               # paths, role list, quorum size, JWT TTL
+common.py               # canonical_bytes, base64 helpers, UTC timestamp
+errors.py               # AuditSystemError hierarchy
+storage.py              # atomic write_json + JSONL helpers
+models/                 # User, Block dataclasses
+crypto/
+  primitives.py         # AES-GCM, RSA-OAEP, Ed25519, SHA-256, scrypt
+  envelope.py           # encrypt/decrypt audit-record payload for many readers
+auth/
+  user_store.py         # users.json + per-user RSA + Ed25519 private keys
+  jwt_service.py        # HS256 JWT, exp/nbf/jti, in-memory revocation list
+  policy.py             # role -> action predicates
+node_server/
+  app.py                # Flask app, /health /head /blocks (GET+POST) /sync /reset
+  chain.py              # append-only Chain with re-validation on append
+  keys.py               # per-node Ed25519 keypair (persisted)
+gateway/
+  app.py                # Flask app: REST + server-rendered web UI
+  audit_service.py      # encrypt + sign + broadcast + collect quorum + verify
+  bootstrap.py          # create_sample_users
+  node_client.py        # tiny REST client + NodeStatus dataclass
+web/
+  templates/            # Jinja templates (Bootstrap 5 CDN)
+  static/app.css        # banners, status pills, hash cells
+demo/                   # eight scripted scenarios using only the public HTTP API
+scripts/
+  dev.py                # spawns 3 nodes + gateway in one console
+  start_all.ps1         # 4 separate PowerShell windows
+  run_demos.ps1         # runs all demos in order
+tests/                  # pytest suite
+Dockerfile
+docker-compose.yml
+report.md               # full project report
+```
 
-No proprietary code was used.
+## What we built ourselves vs. external libraries
 
-## Submission Notes
+We wrote: the block format, the chain-hash construction, the dual-hashing pattern for the actor signature, the envelope encryption for many readers, the quorum protocol, the policy matrix, the verification algorithm, all of the demos, all of the web UI.
 
-- This repository is submission-ready for the Option 2 prototype requirement.
-- For the written report, use `report_notes.md` as a starting structure.
-- For the demo video, the most important commands to capture are:
-  - `python3 demo/create_users_demo.py`
-  - `python3 demo/query_as_patient_demo.py`
-  - `python3 demo/query_as_audit_company_demo.py`
-  - `python3 demo/unauthorized_query_demo.py`
-  - `python3 demo/tamper_demo.py`
-- After `tamper_demo.py`, run `python3 demo/generate_audit_logs_demo.py` once to restore a clean ledger before any final screenshots.
+We used: `cryptography` (AES-GCM, RSA-OAEP, Ed25519, scrypt), `PyJWT` (HS256 JWT serialization), `Flask` + `Jinja2` + Bootstrap 5 (web layer), `requests` (HTTP client between gateway and nodes), `pytest` (tests).  No blockchain framework, no off-the-shelf consensus engine, no off-the-shelf key-management server.
+
+## Limitations / threat model
+
+* The prototype runs over plain HTTP for local demoability.  In production every link (browser↔gateway, gateway↔node) would be TLS.
+* `patient_id_hash` is `SHA-256(patient_id)`.  An attacker who can guess patient IDs can join records to a patient.  Production would key the hash with a per-deployment secret (HMAC) or use a tokenization service.
+* JWT `jti` revocation is in-memory in the gateway process.  A single restart wipes the deny-list.  Acceptable for a demo; production would persist it to Redis or a database.
+* Single-phase commit means a network partition between the gateway and **two** of three nodes briefly stalls writes (the gateway will return a `ConsensusError`).  We trade availability for safety here, which matches medical-records auditing requirements.
+
+See `report.md` for a deeper treatment.
