@@ -26,7 +26,7 @@ For queries, patients may request only their own audit records, while audit comp
 
 Integrity verification is performed through a dedicated verification routine. The gateway fetches the ledgers from all three nodes, recomputes the chain links and block hashes, verifies the actor signatures, and then compares the chains across nodes. If one node has been tampered with, the system reports both per-node integrity failures and cross-node divergence.
 
-![login page](image.png)
+![login page](screenshots/image.png)
 
 ## 2. System Architecture
 
@@ -42,7 +42,7 @@ The user-facing layer has two forms. First, there is a browser-based web UI impl
 
 From a deployment perspective, the system can run locally in a development setup with one gateway process, three node processes, and a Docker-hosted Postgres instance. It can also be launched with Docker Compose, where the gateway and each node run in separate containers. This supports the assignment's decentralization objective more closely than a single-process design.
 
-![decentralized nodes](image-1.png)
+![decentralized nodes](screenshots/image-1.png)
 
 ## 3. Cryptographic Components
 
@@ -74,23 +74,23 @@ Users authenticate with username and password. Passwords are stored using scrypt
 
 The system supports authorized audit queries for both patients and audit companies. Patients can view only records associated with their own patient ID. Audit companies can query all records, and the admin can do the same. The gateway decrypts records only when the requester is authorized and has a wrapped key for the record. Unauthorized requests are denied rather than returning partially visible sensitive content.
 
-![patient authorized query](image-2.png)
+![patient authorized query](screenshots/image-2.png)
 
-![patient unauthorized query](image-3.png)
+![patient unauthorized query](screenshots/image-3.png)
 
 ### Immutability and Tamper Detection
 
 Each block stores both `previous_hash` and `current_hash`, and the verification logic recomputes the expected hash chain from the stored data. Every block also includes an actor signature, which is re-verified during integrity checking. If a node ledger is modified after the fact, either the recomputed hash, the chain linkage, or the signature verification will fail. The tamper demo intentionally modifies one node's stored data so that verification reports the inconsistency.
 
-![flip a bit](image-4.png)
+![flip a bit](screenshots/image-4.png)
 
-![tamper detection](image-5.png)
+![tamper detection](screenshots/image-5.png)
 
 ### Decentralization
 
 The system does not rely on a single ledger. Instead, it runs three independent node services, each maintaining its own append-only chain. The gateway requires a two-out-of-three quorum of node endorsements before a write is treated as successful. For reads, the gateway selects the majority chain when possible. Verification also compares the per-height block hashes across nodes and reports divergence if one node differs from the others. This satisfies the assignment's decentralization objective within a local prototype.
 
-![decentralized nodes](image-6.png)
+![decentralized nodes](screenshots/image-6.png)
 
 ## 5. System Assumptions and Limitations
 
@@ -152,15 +152,15 @@ This order shows the complete story: user initialization, authorized record crea
 
 ## 8. Screenshots:
 
-- Patient viewing their data:![patient viewing his/her dashboard](image-14.png)
-- Doctor creating audit record: ![doctor creating audit record](image-13.png)
-- ![doctor creates audit records](image-7.png)
-- Patients authorized access to their own data: ![patient authorized image](image-8.png)
-- Patients unauthorized access to other patients data: ![patient unauthorized access](image-9.png)
-- Audit company querying all patients: ![audit company query all patients](image-10.png)
-- Tampering node B: ![tamper node b](image-12.png)
-- Tampering Detected due to compromised Node B: ![clean integrity test](image-11.png)
-- Clean Integrity Test: ![clean integrity test](image-15.png)
+- Patient viewing their data:![patient viewing his/her dashboard](screenshots/image-14.png)
+- Doctor creating audit record: ![doctor creating audit record](screenshots/image-13.png)
+- ![doctor creates audit records](screenshots/image-7.png)
+- Patients authorized access to their own data: ![patient authorized image](screenshots/image-8.png)
+- Patients unauthorized access to other patients data: ![patient unauthorized access](screenshots/image-9.png)
+- Audit company querying all patients: ![audit company query all patients](screenshots/image-10.png)
+- Tampering node B: ![tamper node b](screenshots/image-12.png)
+- Tampering Detected due to compromised Node B: ![clean integrity test](screenshots/image-11.png)
+- Clean Integrity Test: ![clean integrity test](screenshots/image-15.png)
 
 
 ## 9. References
