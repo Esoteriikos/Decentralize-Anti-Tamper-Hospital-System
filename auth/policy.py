@@ -2,7 +2,7 @@
 
 Every authorisation decision in the gateway routes through one of the
 predicates in this module so the rules can be reviewed in a single
-place.  The matrix mirrors the table in TODO.md / PLAN.md.
+place.
 """
 
 from __future__ import annotations
