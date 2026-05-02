@@ -14,8 +14,8 @@ from .engine import (
 )
 from .models import (
     Base,
-    LoginEventRow,
     JwtRevocationRow,
+    LoginEventRow,
     QueryAuditRow,
     UserRow,
 )
@@ -27,7 +27,7 @@ __all__ = [
     "init_db",
     "Base",
     "UserRow",
-    "LoginEventRow",
     "JwtRevocationRow",
+    "LoginEventRow",
     "QueryAuditRow",
 ]

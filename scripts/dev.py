@@ -47,6 +47,7 @@ def main() -> int:
     try:
         for svc in SERVICES:
             env = os.environ.copy()
+            env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
             env.update(svc["env"])
             proc = subprocess.Popen(
                 [sys.executable, "-u", "-m", svc["module"]],

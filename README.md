@@ -89,7 +89,7 @@ docker compose up -d postgres
 python scripts/dev.py
 
 # in another terminal
-python -m demo.d00_bootstrap         # create sample users
+python -m demo.d00_bootstrap    
 python -m demo.d01_doctor_creates_audits
 python -m demo.d02_patient_queries_own
 python -m demo.d03_patient_queries_other   
