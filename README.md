@@ -260,11 +260,6 @@ docker-compose.yml
 report.md               # full project report
 ```
 
-## What we built ourselves vs. external libraries
-
-We wrote: the block format, the chain-hash construction, the dual-hashing pattern for the actor signature, the envelope encryption for many readers, the quorum protocol, the policy matrix, the verification algorithm, all of the demos, all of the web UI.
-
-We used: `cryptography` (AES-GCM, RSA-OAEP, Ed25519, scrypt), `PyJWT` (HS256 JWT serialization), `Flask` + `Jinja2` + Bootstrap 5 (web layer), `requests` (HTTP client between gateway and nodes), `pytest` (tests).  No blockchain framework, no off-the-shelf consensus engine, no off-the-shelf key-management server.
 
 ## Limitations / threat model
 
