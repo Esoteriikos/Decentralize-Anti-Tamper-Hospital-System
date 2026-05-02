@@ -1,7 +1,5 @@
 # Secure Decentralized EHR Audit System
 
-CSCI-531 Applied Cryptography — Spring 2026 — Final Project (Option 2)
-
 > A privacy-preserving, append-only audit log for Electronic Health
 > Record (EHR) accesses, replicated across three independent nodes
 > with 2-of-3 quorum, end-to-end envelope encryption, actor signatures,
