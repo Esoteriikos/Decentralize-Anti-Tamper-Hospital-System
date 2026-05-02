@@ -272,5 +272,3 @@ We used: `cryptography` (AES-GCM, RSA-OAEP, Ed25519, scrypt), `PyJWT` (HS256 JWT
 * `patient_id_hash` is `SHA-256(patient_id)`.  An attacker who can guess patient IDs can join records to a patient.  Production would key the hash with a per-deployment secret (HMAC) or use a tokenization service.
 * JWT `jti` revocation is in-memory in the gateway process.  A single restart wipes the deny-list.  Acceptable for a demo; production would persist it to Redis or a database.
 * Single-phase commit means a network partition between the gateway and **two** of three nodes briefly stalls writes (the gateway will return a `ConsensusError`).  We trade availability for safety here, which matches medical-records auditing requirements.
-
-See `report.md` for a deeper treatment.
