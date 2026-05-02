@@ -63,6 +63,92 @@ Single-phase commit: the gateway broadcasts the signed block to every node; each
 
 The actor signs a canonical "sig-header" (everything above except `actor_signature` and `current_hash`).  Nodes recompute `current_hash` over the full header (including the now-populated `actor_signature`) and store the result.  The verifier reverses both steps independently.
 
+## Screenshots
+
+### Login page
+
+![Login page](screenshots/image.png)
+
+Bootstrap demo users with one click, or sign up as a patient.
+
+---
+
+### Doctor dashboard
+
+![Doctor dashboard](screenshots/image-13.png)
+
+Doctors can create audit records for their patients and drill down into any patient's history. No access to raw chain hashes or node state.
+
+---
+
+### Patient dashboard
+
+![Patient dashboard](screenshots/image-14.png)
+
+Patients see only their own access-history events: when, what action, which doctor, and any notes. No other patient's data is visible.
+
+---
+
+### Audit company — investigator console
+
+![Audit company dashboard](screenshots/image-10.png)
+
+The audit company sees every record across all patients with patient/action/free-text filters and real-time network status (3/3 nodes online).
+
+---
+
+### Storage nodes overview
+
+![Storage nodes](screenshots/image-6.png)
+
+All three nodes report online with matching chain height and head hash, confirming replication consistency.
+
+---
+
+### Integrity verification — all clean
+
+![Integrity verification passed](screenshots/image-15.png)
+
+After a fresh bootstrap every node reports VALID: chain links ✓, recomputed hashes ✓, actor signatures ✓.
+
+---
+
+### Integrity verification — tamper detected
+
+![Integrity verification failed](screenshots/image-11.png)
+
+After the insider-tamper demo, `node_b` shows FAILED (recomputed hashes ✗, actor signatures ✗) while `node_a` and `node_c` remain VALID. Overall verdict: **compromised**.
+
+---
+
+### Demo terminals
+
+#### Demo 01 — doctor creates six audit records
+
+![Demo 01](screenshots/image-7.png)
+
+Each write gets 3/3 endorsements, height increments atomically across all nodes.
+
+#### Demo 02 — patient queries own audit log
+
+![Demo 02](screenshots/image-8.png)
+
+The gateway decrypts each record with the patient's RSA private key and returns the plaintext JSON.
+
+#### Demo 03 + 04 — access control enforcement
+
+![Demo 03 and 04](screenshots/image-9.png)
+
+Demo 03: `patient_01` is denied access to `patient_02`'s records (HTTP 403). Demo 04: `audit_company_01` successfully retrieves all 6 records across P001/P002/P003.
+
+#### Demo 06 — insider tamper attack
+
+![Demo 06 tamper](screenshots/image-12.png)
+
+Flips a single base64 character in `node_b`'s chain file. Demo 07 (integrity check) then catches the mutation.
+
+---
+
 ## Quickstart
 
 The gateway requires **Postgres** for its auth surface (users, login events,
@@ -121,7 +207,7 @@ Spins up four separate containers (`node_a`, `node_b`, `node_c`, `gateway`), eac
 |---|---|---|
 | `patient_01` … `patient_10` | patient | `PatientPass!` |
 | `doctor_01`, `doctor_02` | doctor | `DoctorPass!` |
-| `audit_company_01` … `audit_company_03` | audit_company | `   !` |
+| `audit_company_01` … `audit_company_03` | audit_company | `AuditPass!` |
 | `admin_01` | admin | `AdminPass!` |
 
 The bootstrap endpoint refuses to recreate users if `data/gateway/users.json` is non-empty unless `{"reset": true}` is sent, in which case it requires admin credentials.
