@@ -61,6 +61,411 @@ Single-phase commit: the gateway broadcasts the signed block to every node; each
 
 The actor signs a canonical "sig-header" (everything above except `actor_signature` and `current_hash`).  Nodes recompute `current_hash` over the full header (including the now-populated `actor_signature`) and store the result.  The verifier reverses both steps independently.
 
+---
+
+### Component Architecture
+
+```mermaid
+graph TB
+    BROWSER["Browser<br/>Bootstrap 5 Web UI"]
+    SCRIPTS["Demo Scripts / API Clients<br/>Bearer JWT over HTTP"]
+
+    subgraph GATEWAY["Gateway  :5310"]
+
+        subgraph GW_ROUTES["Routes  —  gateway/app.py"]
+            GWR_AUTH["/api/login  /api/logout<br/>/api/me/writes"]
+            GWR_AUDIT["/api/audit/access<br/>/api/audit/patient/:id<br/>/api/audit/all"]
+            GWR_VFY["/api/verify<br/>/api/nodes/health<br/>/api/nodes/:id/blocks"]
+            GWR_ADM["/api/admin/bootstrap<br/>/api/admin/users  /api/admin/tamper"]
+            GWR_WEB["/web/*  role-tailored dashboards<br/>/signup  patient self-signup"]
+        end
+
+        subgraph GW_AUTH["Auth Layer  —  auth/"]
+            GWA_US["UserStore  user_store.py<br/>scrypt password hashing<br/>RSA-2048 keygen for readers<br/>Ed25519 keygen for writers<br/>KEK-sealed private keys at rest"]
+            GWA_JWT["JwtService  jwt_service.py<br/>HS256 issue / verify  exp=30 min<br/>jti revocation via Postgres<br/>purge_expired() cleanup"]
+            GWA_POL["Policy  policy.py<br/>can_create_record<br/>can_query_patient / can_query_all<br/>can_verify_integrity<br/>can_manage_users"]
+        end
+
+        subgraph GW_CRYPTO["Crypto Layer  —  crypto/"]
+            GWC_ENV["Envelope  envelope.py<br/>AES-256-GCM encrypt payload<br/>RSA-OAEP wrap data key per reader<br/>SHA-256 patient_id_hash"]
+            GWC_KEK["KEK  kek.py<br/>AES-256-GCM seal of private blobs<br/>nonce + ciphertext + tag format<br/>master.key or GATEWAY_MASTER_KEY env"]
+            GWC_PRM["Primitives  primitives.py<br/>AES-GCM  RSA-OAEP  Ed25519<br/>SHA-256  scrypt  base64 helpers"]
+        end
+
+        GW_ASVC["AuditService  —  audit_service.py<br/>encrypt -> actor-sign -> broadcast<br/>collect quorum (2-of-3)<br/>verify_integrity  query_records_for_reader<br/>tamper_node_block (admin demo only)"]
+        GW_NC["NodeClient x3  —  node_client.py<br/>health / head / get_blocks<br/>submit_block / tamper / reset<br/>HTTP REST  timeout=3 s per call"]
+    end
+
+    subgraph POSTGRES["PostgreSQL  :5432"]
+        PG_USR[("users<br/>PK user_id  username  role<br/>password_hash  scrypt<br/>rsa_public_pem  cleartext<br/>rsa_private_enc  KEK-sealed<br/>ed25519_public_b64  cleartext<br/>ed25519_private_enc  KEK-sealed<br/>failed_logins  locked")]
+        PG_JWT[("jwt_revocations<br/>jti  user_id  expires_at")]
+        PG_LOG[("login_events<br/>user_id  success  ip  ts")]
+        PG_QRY[("query_audit<br/>actor_user_id  patient_id  ts")]
+    end
+
+    subgraph FS["File System  —  data/"]
+        FS_MK["gateway/master.key<br/>32-byte AES KEK  chmod 0600"]
+        FS_EL["gateway/endorsements.jsonl<br/>Ed25519 quorum proofs per block"]
+        FS_NK["nodes/id/node_key.b64<br/>nodes/id/node_public.b64"]
+    end
+
+    subgraph NODE_A["Node A  :5311"]
+        NA_APP["Flask app.py<br/>GET /health  /head  /blocks<br/>POST /blocks  /sync  /reset  /tamper"]
+        NA_CHN["Chain  chain.py<br/>append-only JSONL  threading.RLock<br/>validate_candidate: height + prev_hash + SHA-256<br/>append: atomic write to chain.jsonl"]
+        NA_KEY["Ed25519 Keypair  keys.py<br/>persists to data/nodes/node_a/<br/>endorses every committed block"]
+        NA_JL[("chain.jsonl<br/>one Block JSON per line")]
+    end
+
+    subgraph NODE_B["Node B  :5312"]
+        NB_APP["Flask app.py"]
+        NB_CHN["Chain  chain.py"]
+        NB_KEY["Ed25519 Keypair"]
+        NB_JL[("chain.jsonl")]
+    end
+
+    subgraph NODE_C["Node C  :5313"]
+        NC_APP["Flask app.py"]
+        NC_CHN["Chain  chain.py"]
+        NC_KEY["Ed25519 Keypair"]
+        NC_JL[("chain.jsonl")]
+    end
+
+    BROWSER -->|"HTTPS  session cookie + JWT"| GW_ROUTES
+    SCRIPTS -->|"Bearer JWT"| GW_ROUTES
+    GW_ROUTES --> GW_AUTH
+    GW_ROUTES --> GW_ASVC
+    GWA_US --> POSTGRES
+    GWA_JWT --> POSTGRES
+    GW_ASVC --> GW_CRYPTO
+    GW_ASVC --> GW_NC
+    GWC_KEK --> FS_MK
+    GW_ASVC -->|"persist quorum proofs"| FS_EL
+    GW_NC -->|"POST /blocks"| NA_APP
+    GW_NC -->|"POST /blocks"| NB_APP
+    GW_NC -->|"POST /blocks"| NC_APP
+    NA_APP --> NA_CHN --> NA_JL
+    NA_KEY -.->|"sign endorsement"| NA_APP
+    NB_APP --> NB_CHN --> NB_JL
+    NB_KEY -.->|"sign endorsement"| NB_APP
+    NC_APP --> NC_CHN --> NC_JL
+    NC_KEY -.->|"sign endorsement"| NC_APP
+    FS_NK -.->|"persisted to disk"| NA_KEY
+    FS_NK -.->|"persisted to disk"| NB_KEY
+    FS_NK -.->|"persisted to disk"| NC_KEY
+```
+
+---
+
+### Envelope Encryption Data Flow
+
+```mermaid
+graph LR
+    subgraph ENC["encrypt_record_payload()  —  envelope.py"]
+        PAYLOAD["Plaintext Payload<br/>timestamp  patient_id<br/>actor  action_type  details"]
+        AESKEY["Random 32-byte<br/>AES-256 Data Key<br/>os.urandom(32)"]
+        GCMENC["AES-256-GCM Encrypt<br/>nonce = os.urandom(12)<br/>ciphertext + tag (16 B)"]
+        PIDHASH["SHA-256(patient_id)<br/>patient_id_hash"]
+        WRAP["RSA-OAEP-SHA256 Wrap<br/>for each authorized reader<br/>patient + audit_company + admin<br/>doctors intentionally excluded"]
+    end
+
+    subgraph BLOCK["Block  record  field (stored on nodes)"]
+        ONONCE["nonce  b64  12 B"]
+        OCT["ciphertext  b64"]
+        OTAG["tag  b64  16 B"]
+        OWK["wrapped_keys<br/>reader_id  alg  value x N"]
+        OPID["patient_id_hash"]
+    end
+
+    subgraph DEC["decrypt_record_payload()  —  envelope.py"]
+        FINDWK["find wrapped_key<br/>where reader_id matches"]
+        UNWRAP["RSA-OAEP-SHA256 Unwrap<br/>with reader RSA private key<br/>32-byte AES data key"]
+        GCMDEC["AES-256-GCM Decrypt<br/>verify GCM tag  tamper detection<br/>plaintext bytes  JSON parse"]
+    end
+
+    PAYLOAD --> GCMENC
+    AESKEY --> GCMENC
+    AESKEY --> WRAP
+    GCMENC --> ONONCE
+    GCMENC --> OCT
+    GCMENC --> OTAG
+    WRAP --> OWK
+    PAYLOAD --> PIDHASH --> OPID
+
+    OCT --> GCMDEC
+    ONONCE --> GCMDEC
+    OTAG --> GCMDEC
+    OWK --> FINDWK --> UNWRAP --> GCMDEC
+    GCMDEC --> PLAIN["Decrypted Payload dict<br/>accessible only to authorized readers"]
+```
+
+---
+
+### KEK At-Rest Key Protection
+
+```mermaid
+graph LR
+    subgraph KEYGEN["User Registration  —  user_store.py"]
+        GENRSA["RSA-2048 keygen<br/>rsa_generate_keypair()"]
+        GENED["Ed25519 keygen<br/>ed25519_generate_keypair()"]
+    end
+
+    subgraph KEKMOD["Key Sealing  —  kek.py"]
+        MASTERKEY["Master Key  32 B<br/>GATEWAY_MASTER_KEY env var<br/>or data/gateway/master.key<br/>auto-generated  chmod 0600"]
+        GCMKEK["AES-256-GCM Encrypt<br/>nonce = os.urandom(12)<br/>blob = nonce + ciphertext + tag"]
+    end
+
+    subgraph PGSTORE["PostgreSQL  users table"]
+        PUBPEM["rsa_public_pem  TEXT<br/>cleartext  public key only"]
+        PRIVENC["rsa_private_enc  BYTEA<br/>nonce + ciphertext + tag"]
+        EDPUB["ed25519_public_b64  TEXT<br/>cleartext  public key only"]
+        EDPRIVENC["ed25519_private_enc  BYTEA<br/>nonce + ciphertext + tag"]
+    end
+
+    subgraph KEKDEC["Key Unsealing  —  kek.py"]
+        GCMKEKD["AES-256-GCM Decrypt<br/>blob 0-12 = nonce<br/>blob -16 = tag<br/>middle = ciphertext<br/>plaintext private key bytes"]
+    end
+
+    GENRSA -->|"export public PEM"| PUBPEM
+    GENRSA -->|"export private PEM bytes"| GCMKEK
+    MASTERKEY --> GCMKEK
+    GCMKEK --> PRIVENC
+    GENED -->|"export public b64"| EDPUB
+    GENED -->|"export private b64 bytes"| GCMKEK
+    GCMKEK --> EDPRIVENC
+
+    PRIVENC --> GCMKEKD
+    EDPRIVENC --> GCMKEKD
+    MASTERKEY --> GCMKEKD
+    GCMKEKD --> PLAINKEY["Plaintext Private Key<br/>RSA: RSA-OAEP unwrap operations<br/>Ed25519: block header signing"]
+```
+
+---
+
+## System Workflows
+
+### Login
+
+```mermaid
+sequenceDiagram
+    actor U as User (any role)
+    participant GW as Gateway
+    participant US as UserStore
+    participant DB as PostgreSQL
+    participant JWT as JwtService
+
+    U->>GW: POST /api/login {username, password}
+    GW->>US: authenticate(username, password)
+    US->>DB: SELECT * FROM users WHERE username = ?
+    DB-->>US: UserRow {password_hash, locked, failed_logins, role}
+
+    alt account is locked
+        US-->>GW: AuthError: account locked
+        GW-->>U: 401 Unauthorized
+    else scrypt_verify fails
+        US->>DB: UPDATE failed_logins += 1 (lock if >= 5)
+        US-->>GW: AuthError: bad credentials
+        GW-->>U: 401 Unauthorized
+    else credentials valid
+        US->>DB: UPDATE failed_logins = 0, locked = False
+        US-->>GW: User {user_id, role, patient_id}
+        GW->>JWT: issue(user)
+        JWT->>JWT: generate jti = UUID4
+        JWT->>JWT: HS256 sign {sub, role, patient_id, jti, iat, nbf, exp=+30 min}
+        JWT-->>GW: {token, expires_at, jti}
+        GW->>DB: INSERT login_events {user_id, success=True, ip, ts}
+        GW-->>U: 200 OK {token, role, user_id, expires_at}
+    end
+
+    Note over U,GW: Subsequent requests carry  Authorization: Bearer token
+
+    U->>GW: GET /api/audit/... Authorization: Bearer token
+    GW->>JWT: verify(token)
+    JWT->>JWT: PyJWT decode + expiry check
+    JWT->>DB: SELECT FROM jwt_revocations WHERE jti = ?
+    DB-->>JWT: not found (token valid)
+    JWT-->>GW: {sub, role, patient_id, jti}
+    GW-->>GW: proceed with authorized request
+```
+
+---
+
+### Write Audit Record
+
+```mermaid
+sequenceDiagram
+    actor D as Doctor
+    participant GW as Gateway
+    participant POL as Policy
+    participant AS as AuditService
+    participant US as UserStore
+    participant KEK as KEK
+    participant ENV as Envelope
+    participant NA as Node A
+    participant NB as Node B
+    participant NC as Node C
+    participant EL as endorsements.jsonl
+
+    D->>GW: POST /api/audit/access {patient_id, action_type, details}
+    GW->>GW: verify JWT -> role = doctor
+    GW->>POL: can_create_record("doctor")
+    POL-->>GW: allowed
+    GW->>AS: create_audit_record(actor, patient_id, action_type, details)
+
+    AS->>NA: GET /head
+    AS->>NB: GET /head
+    AS->>NC: GET /head
+    Note over AS: _agreed_head(): pick majority height + prev_hash<br/>guards against split-brain
+
+    AS->>US: all_reader_pems(patient_id)
+    Note over US: readers = patient owner<br/>+ all audit_company users<br/>+ all admin users<br/>doctors intentionally excluded from readers
+    US-->>AS: {patient_01: RSA_pub, audit_co_01: RSA_pub, admin_01: RSA_pub}
+
+    AS->>ENV: encrypt_record_payload(payload, patient_id, reader_pems)
+    ENV->>ENV: generate random 32-byte AES-256 data key
+    ENV->>ENV: AES-256-GCM encrypt -> nonce (12 B) + ciphertext + tag (16 B)
+    ENV->>ENV: SHA-256(patient_id) -> patient_id_hash
+    ENV->>ENV: RSA-OAEP-SHA256 wrap AES key x3 readers
+    ENV-->>AS: EnvelopeResult {nonce, ct, tag, wrapped_keys, patient_id_hash}
+
+    AS->>AS: build block {version, block_id, height, timestamp, previous_hash, record}
+
+    AS->>US: actor_private_b64(doctor_id)
+    US->>KEK: kek_decrypt(ed25519_private_enc blob)
+    KEK-->>US: plaintext Ed25519 private bytes
+    US-->>AS: Ed25519 private key
+
+    AS->>AS: Ed25519 sign sig-header (excl actor_sig + current_hash) -> actor_signature
+    AS->>AS: SHA-256 full header including actor_signature -> current_hash
+
+    par Broadcast to all 3 nodes simultaneously
+        AS->>NA: POST /blocks {complete signed block JSON}
+        NA->>NA: validate_candidate: check height + prev_hash + recompute SHA-256
+        NA->>NA: chain.append -> write to chain.jsonl (RLock)
+        NA->>NA: Ed25519 sign block header with node A private key
+        NA-->>AS: {node_id: A, endorsement: Ed25519_sig_b64}
+    and
+        AS->>NB: POST /blocks {complete signed block JSON}
+        NB->>NB: validate_candidate + append + sign with node B key
+        NB-->>AS: {node_id: B, endorsement: Ed25519_sig_b64}
+    and
+        AS->>NC: POST /blocks {complete signed block JSON}
+        NC->>NC: validate_candidate + append + sign with node C key
+        NC-->>AS: {node_id: C, endorsement: Ed25519_sig_b64}
+    end
+
+    AS->>AS: count endorsements = 3, QUORUM = 2 -> committed
+    AS->>EL: append {block_id, height, ts, endorsements[3]} to endorsements.jsonl
+    AS-->>GW: {block_id, height, endorsements: 3}
+    GW-->>D: 201 Created {block_id, height}
+```
+
+---
+
+### Query Records
+
+```mermaid
+sequenceDiagram
+    actor P as Patient or Audit Company
+    participant GW as Gateway
+    participant POL as Policy
+    participant AS as AuditService
+    participant NA as Node A
+    participant NB as Node B
+    participant NC as Node C
+    participant US as UserStore
+    participant KEK as KEK
+    participant ENV as Envelope
+
+    P->>GW: GET /api/audit/patient/patient_01  Bearer token
+    GW->>GW: verify JWT -> role, patient_id
+    GW->>POL: can_query_patient(role, requester_patient_id, "patient_01")
+    Note over POL: patient: only own patient_id<br/>audit_company / admin: any patient_id
+    POL-->>GW: allowed
+
+    GW->>AS: query_records_for_reader(requester, "patient_01")
+    GW->>AS: record query in query_audit table
+
+    par Fetch chains from all 3 nodes
+        AS->>NA: GET /blocks
+        NA-->>AS: chain A blocks
+    and
+        AS->>NB: GET /blocks
+        NB-->>AS: chain B blocks
+    and
+        AS->>NC: GET /blocks
+        NC-->>AS: chain C blocks
+    end
+
+    AS->>AS: _majority_chain(): pick longest chain agreed by >= 2 nodes
+    AS->>AS: filter blocks where patient_id_hash == SHA-256("patient_01")
+
+    loop for each matching block
+        AS->>US: reader_private_pem(requester.user_id)
+        US->>KEK: kek_decrypt(rsa_private_enc blob)
+        KEK-->>US: RSA-2048 private key PEM
+        US-->>AS: RSA private PEM
+
+        AS->>ENV: decrypt_record_payload(record, reader_id, private_pem)
+        ENV->>ENV: find wrapped_key where reader_id matches
+        ENV->>ENV: RSA-OAEP-SHA256 unwrap -> 32-byte AES data key
+        ENV->>ENV: AES-256-GCM decrypt -> verify GCM tag -> plaintext JSON
+        ENV-->>AS: {timestamp, patient_id, actor, action_type, details}
+    end
+
+    AS-->>GW: [decrypted record list]
+    GW-->>P: 200 OK {records: [...]}
+```
+
+---
+
+### Integrity Verification
+
+```mermaid
+sequenceDiagram
+    actor A as Audit Company or Admin
+    participant GW as Gateway
+    participant POL as Policy
+    participant AS as AuditService
+    participant NA as Node A
+    participant NB as Node B
+    participant NC as Node C
+
+    A->>GW: GET /api/verify  Bearer token
+    GW->>GW: verify JWT
+    GW->>POL: can_verify_integrity(role)
+    Note over POL: allowed for audit_company and admin only
+    POL-->>GW: allowed
+
+    GW->>AS: verify_integrity()
+
+    par Pull full chains from all nodes
+        AS->>NA: GET /blocks
+        NA-->>AS: [block_1 ... block_N] chain A
+    and
+        AS->>NB: GET /blocks
+        NB-->>AS: [block_1 ... block_N] chain B
+    and
+        AS->>NC: GET /blocks
+        NC-->>AS: [block_1 ... block_N] chain C
+    end
+
+    AS->>AS: _actor_public_index(): build {user_id: Ed25519_pub_key} map from UserStore
+
+    loop for each node chain independently
+        AS->>AS: _verify_single_chain(blocks)
+        Note over AS: 1. Walk blocks in ascending height order<br/>2. Recompute SHA-256 of full block header<br/>   compare to stored current_hash<br/>3. Verify Ed25519 actor signature<br/>   over sig-header (excl actor_sig + current_hash)<br/>   using actor_public_index lookup<br/>4. Verify hash chain link:<br/>   block[i].previous_hash == block[i-1].current_hash<br/>5. Collect per-block PASS / FAIL result
+    end
+
+    AS->>AS: cross-node consistency: compare head hashes of A, B, C
+    AS->>AS: flag divergences where hashes disagree
+    AS->>AS: compute overall verdict: clean or compromised
+
+    AS-->>GW: {nodes: {A: VALID, B: FAILED, C: VALID}, overall: compromised, network_consistent: True, majority: 2-of-3, divergences: [{node_id, height, detail}]}
+    GW-->>A: 200 OK {verification result}
+```
+
+---
+
 ## Screenshots
 
 ### Login page
